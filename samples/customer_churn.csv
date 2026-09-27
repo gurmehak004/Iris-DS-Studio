@@ -1,0 +1,21 @@
+customerID,gender,SeniorCitizen,Partner,Dependents,tenure,PhoneService,MultipleLines,InternetService,OnlineSecurity,MonthlyCharges,TotalCharges,Churn
+7590-VHVEG,Female,0,Yes,No,1,No,No phone service,DSL,No,29.85,29.85,No
+5575-GNVDE,Male,0,No,No,34,Yes,No,DSL,Yes,56.95,1889.5,No
+3668-QVRWS,Male,0,No,No,2,Yes,No,DSL,Yes,53.85,108.15,Yes
+7795-CFOCW,Male,0,No,No,45,No,No phone service,DSL,Yes,42.3,1840.75,No
+9237-HQJSL,Female,0,No,No,2,Yes,No,Fiber optic,No,70.7,151.65,Yes
+9305-CDSKC,Female,0,No,No,8,Yes,Yes,Fiber optic,No,99.65,820.5,Yes
+1452-KTVAD,Male,0,No,No,22,Yes,Yes,Fiber optic,No,89.1,1949.4,No
+6713-OKOMC,Female,0,No,No,10,No,No phone service,DSL,Yes,29.75,301.9,No
+7892-POOKP,Female,0,Yes,No,28,Yes,Yes,Fiber optic,No,104.8,3046.05,Yes
+6388-TABGU,Male,0,No,Yes,62,Yes,No,DSL,Yes,56.15,3487.95,No
+9763-GRSKD,Male,0,Yes,Yes,13,Yes,No,DSL,Yes,49.95,587.45,No
+7469-LKBCI,Male,0,No,No,16,Yes,No,No,No internet service,18.95,326.8,No
+8091-TTWWU,Male,0,Yes,No,58,Yes,Yes,Fiber optic,No,100.35,5681.1,No
+6021-MGDBA,Male,0,No,No,49,Yes,Yes,Fiber optic,No,103.7,5036.3,Yes
+3655-SNQYZ,Female,0,Yes,Yes,69,Yes,Yes,Fiber optic,Yes,113.25,7895.15,No
+8191-XFAJB,Female,0,Yes,Yes,71,Yes,Yes,Fiber optic,Yes,108.2,7616.4,No
+8191-JTLVJ,Female,0,No,No,52,Yes,No,No,No internet service,20.65,1022.95,No
+9959-WOFKC,Male,0,No,No,71,Yes,Yes,Fiber optic,Yes,106.7,7382.25,No
+3470-ERB2D,Male,0,Yes,Yes,10,Yes,No,DSL,No,55.2,528.35,No
+2844-UXCXZ,Male,0,No,No,12,Yes,No,Fiber optic,No,95.5,1140.85,Yes
