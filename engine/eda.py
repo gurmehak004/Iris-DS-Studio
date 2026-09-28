@@ -165,7 +165,7 @@ def generate_eda_key_findings(df: pd.DataFrame, col_types: Dict[str, str]) -> Li
         top_p = corr_res["top_pairs"][0]
         if abs(top_p["pearson_r"]) > 0.5:
             rel = "positive" if top_p["pearson_r"] > 0 else "negative"
-            findings.append(f"Strong {rel} correlation found between **{top_p['col1']}** and **{top_p['col2']}** (r = {top_p['pearson_r']:.2f}).")
+            findings.append(f"Strong {rel} correlation found between {top_p['col1']} and {top_p['col2']} (r = {top_p['pearson_r']:.2f}).")
 
     # 2. Skewness / Normality findings
     num_cols = [c for c, t in col_types.items() if t == "numeric"]
@@ -173,7 +173,7 @@ def generate_eda_key_findings(df: pd.DataFrame, col_types: Dict[str, str]) -> Li
         s = pd.to_numeric(df[col], errors="coerce").dropna()
         if len(s) > 0 and abs(s.skew()) > 1.5:
             direction = "right" if s.skew() > 0 else "left"
-            findings.append(f"Column **{col}** is heavily {direction}-skewed (skewness = {s.skew():.2f}). Consider log-transform.")
+            findings.append(f"Column {col} is heavily {direction}-skewed (skewness = {s.skew():.2f}). Consider log-transform.")
             break
 
     # 3. Class imbalance findings
@@ -181,7 +181,7 @@ def generate_eda_key_findings(df: pd.DataFrame, col_types: Dict[str, str]) -> Li
     for col in cat_cols:
         imb = detect_class_imbalance(df[col])
         if imb["is_imbalanced"]:
-            findings.append(f"Class imbalance detected in **{col}**: Majority class '{imb['majority_class']}' makes up {imb['majority_pct']}% of records.")
+            findings.append(f"Class imbalance detected in {col}: Majority class '{imb['majority_class']}' makes up {imb['majority_pct']}% of records.")
             break
 
     # 4. Missing data warning
@@ -190,10 +190,10 @@ def generate_eda_key_findings(df: pd.DataFrame, col_types: Dict[str, str]) -> Li
     if len(null_cols) > 0:
         worst_col = null_cols.idxmax()
         worst_pct = (null_cols.max() / len(df)) * 100
-        findings.append(f"Missing data alert: **{worst_col}** has the highest missing rate ({worst_pct:.1f}% missing cells).")
+        findings.append(f"Missing data alert: {worst_col} has the highest missing rate ({worst_pct:.1f}% missing cells).")
 
     # 5. Dataset shape summary
-    findings.append(f"Dataset contains **{len(df):,} rows** across **{len(df.columns)} features** ({len(num_cols)} numeric, {len(cat_cols)} categorical).")
+    findings.append(f"Dataset contains {len(df):,} rows across {len(df.columns)} features ({len(num_cols)} numeric, {len(cat_cols)} categorical).")
 
     return findings
 

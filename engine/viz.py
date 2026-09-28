@@ -10,19 +10,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Dict, Optional, Any
 
-IRIS_PURPLE = "#A78BFA"
-IRIS_TEAL   = "#2DD4BF"
-IRIS_PINK   = "#F472B6"
-BG          = "#0F0F1A"
-PAPER_BG    = "#1A1A2E"
+IRIS_PURPLE = "#7C3AED"
+IRIS_TEAL   = "#0891B2"
+IRIS_PINK   = "#DB2777"
+BG          = "#FAFAFC"
+PAPER_BG    = "#FFFFFF"
 
-PALETTE = [IRIS_PURPLE, IRIS_TEAL, IRIS_PINK, "#60A5FA", "#FBBF24", "#34D399"]
+PALETTE = ["#6D28D9", "#0891B2", "#DB2777", "#059669", "#D97706", "#2563EB"]
 
 LAYOUT_BASE = dict(
-    plot_bgcolor=BG,
+    plot_bgcolor="#FFFFFF",
     paper_bgcolor=PAPER_BG,
-    font=dict(color="#E2E8F0", family="sans-serif"),
+    font=dict(color="#1E293B", family="Inter, sans-serif"),
     margin=dict(l=40, r=20, t=50, b=40),
+    colorway=PALETTE,
 )
 
 
@@ -61,8 +62,8 @@ def sanitize_fig_for_html(fig):
 
 def _apply_layout(fig, title=""):
     fig.update_layout(**LAYOUT_BASE, title=dict(text=title, font=dict(size=16, color=IRIS_PURPLE)))
-    fig.update_xaxes(gridcolor="#2D2D4E", zerolinecolor="#2D2D4E")
-    fig.update_yaxes(gridcolor="#2D2D4E", zerolinecolor="#2D2D4E")
+    fig.update_xaxes(gridcolor="#EDE9FE", zerolinecolor="#C4B5FD", linecolor="#DDD6FE", tickfont=dict(color="#475569"))
+    fig.update_yaxes(gridcolor="#EDE9FE", zerolinecolor="#C4B5FD", linecolor="#DDD6FE", tickfont=dict(color="#475569"))
     return fig
 
 

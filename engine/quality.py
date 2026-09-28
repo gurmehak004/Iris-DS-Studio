@@ -40,13 +40,15 @@ def outlier_report(df: pd.DataFrame, col_types: Dict[str, str]) -> pd.DataFrame:
         iqr_outliers = int(((s < q1 - 1.5 * iqr) | (s > q3 + 1.5 * iqr)).sum())
         z = np.abs(stats.zscore(s))
         z_outliers = int((z > 3).sum())
-        rows.append({
-            "column": col,
-            "iqr_outliers": iqr_outliers,
-            "zscore_outliers": z_outliers,
-            "iqr_outlier_pct": round(iqr_outliers / len(s) * 100, 2),
-        })
-    return pd.DataFrame(rows).sort_values("iqr_outliers", ascending=False).reset_index(drop=True)
+        if iqr_outliers or z_outliers:
+            rows.append({
+                "column": col,
+                "iqr_outliers": iqr_outliers,
+                "zscore_outliers": z_outliers,
+                "iqr_outlier_pct": round(iqr_outliers / len(s) * 100, 2),
+            })
+    columns = ["column", "iqr_outliers", "zscore_outliers", "iqr_outlier_pct"]
+    return pd.DataFrame(rows, columns=columns).sort_values("iqr_outliers", ascending=False).reset_index(drop=True)
 
 
 def skewness_report(df: pd.DataFrame, col_types: Dict[str, str]) -> pd.DataFrame:

@@ -10,12 +10,13 @@ Complete Data Science Lifecycle Platform:
 import streamlit as st
 import pandas as pd
 import numpy as np
+import hashlib
 import json
 import os
 import plotly.express as px
 import plotly.graph_objects as go
 
-from engine.parser import load_csv
+from engine.parser import get_excel_sheet_names, load_csv, load_excel, load_google_sheet
 from engine.type_inference import infer_all_types, get_columns_by_type
 from engine.quality import full_quality_report
 from engine.eda import all_column_stats, correlation_matrix
@@ -54,15 +55,26 @@ from ui.styles import inject_custom_css
 from ui.components import (
     render_kpi_card, render_iris_says, render_stage_header,
     render_health_scorecard, render_recommendation_card,
-    render_data_preview_table
+    render_data_preview_table, render_styled_dataframe, render_section_header, ICONS,
+    scroll_to_top
 )
 
 
 
+import base64
+
+def get_logo_base64():
+    logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.jpg")
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    return ""
+
+LOGO_B64 = get_logo_base64()
+
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Iris Data Science Studio",
-    page_icon="🌸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -74,35 +86,35 @@ st.markdown("""
 
 /* ── DESIGN TOKENS ── */
 :root {
-    --bg-base:      #08080f;
-    --bg-surface:   #0e0e1a;
-    --bg-elevated:  #141426;
-    --bg-hover:     #1a1a30;
-    --border-dim:   rgba(255,255,255,0.06);
-    --border-soft:  rgba(124,58,237,0.18);
-    --border-glow:  rgba(124,58,237,0.45);
+    --bg-base:      #FAFAFC;      /* Executive Ivory / Soft Cream White */
+    --bg-surface:   #FFFFFF;      /* Pure Crisp White Cards */
+    --bg-elevated:  #F8FAFC;      /* Soft Light Slate/Cream for secondary items */
+    --bg-hover:     #F1F5F9;      /* Light Slate Hover */
+    --border-dim:   #E2E8F0;      /* Soft subtle border */
+    --border-soft:  rgba(124,58,237,0.22);
+    --border-glow:  rgba(124,58,237,0.40);
     --violet-600:   #7C3AED;
     --violet-500:   #8B5CF6;
-    --violet-400:   #A78BFA;
-    --violet-glow:  rgba(124,58,237,0.14);
-    --cyan-500:     #06B6D4;
-    --cyan-400:     #22D3EE;
+    --violet-400:   #6D28D9;      /* High contrast violet for light background */
+    --violet-glow:  rgba(124,58,237,0.12);
+    --cyan-500:     #0891B2;
+    --cyan-400:     #0284C7;
     --cyan-glow:    rgba(6,182,212,0.10);
-    --green-500:    #10B981;
-    --amber-500:    #F59E0B;
-    --red-500:      #EF4444;
-    --pink-500:     #EC4899;
-    --text-primary: #F1F5F9;
-    --text-secondary:#94A3B8;
-    --text-muted:   #475569;
+    --green-500:    #059669;
+    --amber-500:    #D97706;
+    --red-500:      #DC2626;
+    --pink-500:     #DB2777;
+    --text-primary: #0F172A;      /* Deep Slate Charcoal for main text */
+    --text-secondary:#334155;      /* Dark Slate for body text */
+    --text-muted:   #64748B;      /* Slate Grey for muted subtext */
     --radius-sm:    10px;
     --radius-md:    14px;
     --radius-lg:    20px;
     --radius-xl:    24px;
-    --shadow-sm:    0 2px 8px rgba(0,0,0,0.3);
-    --shadow-md:    0 8px 24px rgba(0,0,0,0.4);
-    --shadow-lg:    0 16px 48px rgba(0,0,0,0.5);
-    --shadow-glow:  0 0 40px rgba(124,58,237,0.12);
+    --shadow-sm:    0 2px 8px rgba(0,0,0,0.03);
+    --shadow-md:    0 6px 20px rgba(0,0,0,0.05);
+    --shadow-lg:    0 12px 36px rgba(0,0,0,0.07);
+    --shadow-glow:  0 0 30px rgba(124,58,237,0.08);
 }
 
 /* ── BASE ── */
@@ -111,18 +123,56 @@ st.markdown("""
 html, body, .stApp {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg-base) !important;
-    color: var(--text-primary);
+    background-color: #FFFFFF !important;
+    background-image: linear-gradient(rgba(124,58,237,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(124,58,237,0.035) 1px, transparent 1px) !important;
+    background-size: 36px 36px !important;
+    color: var(--text-primary) !important;
     font-size: 15px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
 }
 
+/* Keep legacy inline copy readable on the white canvas without changing the dark sidebar. */
+section[data-testid="stMain"] *[style*="color:#9CA3AF"],
+section[data-testid="stMain"] *[style*="color: #9CA3AF"],
+section[data-testid="stMain"] *[style*="rgb(156, 163, 175)"] {
+    color: #64748B !important;
+}
+section[data-testid="stMain"] *[style*="color:#8B5CF6"],
+section[data-testid="stMain"] *[style*="color:#A78BFA"],
+section[data-testid="stMain"] *[style*="rgb(139, 92, 246)"],
+section[data-testid="stMain"] *[style*="rgb(167, 139, 250)"] {
+    color: #6D28D9 !important;
+}
+section[data-testid="stMain"] *[style*="color:#06B6D4"],
+section[data-testid="stMain"] *[style*="color:#67E8F9"],
+section[data-testid="stMain"] *[style*="color:#22D3EE"],
+section[data-testid="stMain"] *[style*="rgb(6, 182, 212)"],
+section[data-testid="stMain"] *[style*="rgb(103, 232, 249)"],
+section[data-testid="stMain"] *[style*="rgb(34, 211, 238)"] {
+    color: #0E7490 !important;
+}
+section[data-testid="stMain"] *[style*="color:#CBD5E1"],
+section[data-testid="stMain"] *[style*="color:#D1D5DB"],
+section[data-testid="stMain"] *[style*="color:#E2E8F0"],
+section[data-testid="stMain"] *[style*="color:#E5E7EB"],
+section[data-testid="stMain"] *[style*="color:#F3F4F6"],
+section[data-testid="stMain"] *[style*="color:#F8FAFC"],
+section[data-testid="stMain"] *[style*="rgb(203, 213, 225)"],
+section[data-testid="stMain"] *[style*="rgb(209, 213, 219)"],
+section[data-testid="stMain"] *[style*="rgb(226, 232, 240)"],
+section[data-testid="stMain"] *[style*="rgb(229, 231, 235)"],
+section[data-testid="stMain"] *[style*="rgb(243, 244, 246)"],
+section[data-testid="stMain"] *[style*="rgb(248, 250, 252)"] {
+    color: #334155 !important;
+}
+
 p, div, span, li { font-family: 'Inter', sans-serif; }
 
-/* ── SIDEBAR ── */
+/* ── SIDEBAR (Dark Navy Theme) ── */
 section[data-testid="stSidebar"] {
-    background: var(--bg-surface) !important;
-    border-right: 1px solid var(--border-dim) !important;
+    background: #0B0F19 !important;
+    border-right: 1px solid rgba(255,255,255,0.08) !important;
     padding-top: 0 !important;
 }
 section[data-testid="stSidebar"] > div {
@@ -131,8 +181,8 @@ section[data-testid="stSidebar"] > div {
 
 /* Sidebar brand logo area */
 .iris-brand {
-    padding: 28px 20px 20px;
-    border-bottom: 1px solid var(--border-dim);
+    padding: 24px 16px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
     margin-bottom: 8px;
     text-align: center;
 }
@@ -140,20 +190,16 @@ section[data-testid="stSidebar"] > div {
     font-size: 2.2rem;
     display: block;
     margin-bottom: 6px;
-    filter: drop-shadow(0 0 20px rgba(124,58,237,0.7));
 }
 .iris-brand-name {
     font-size: 1.1rem;
     font-weight: 800;
     letter-spacing: -0.02em;
-    background: linear-gradient(135deg, #A78BFA 0%, #06B6D4 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #A78BFA !important;
 }
 .iris-brand-tagline {
     font-size: 0.7rem;
-    color: var(--text-muted);
+    color: #94A3B8 !important;
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -163,7 +209,7 @@ section[data-testid="stSidebar"] > div {
 /* Sidebar step stepper */
 .sidebar-section-label {
     font-size: 0.65rem;
-    color: var(--text-muted);
+    color: #94A3B8 !important;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -180,25 +226,26 @@ section[data-testid="stSidebar"] > div {
     transition: all 0.18s ease;
     font-size: 0.82rem;
     font-weight: 500;
-    color: var(--text-muted);
-    border: 1px solid transparent;
+    color: #CBD5E1 !important;
+    border: 1px solid rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.03);
     text-decoration: none;
 }
 .sidebar-step-done {
-    color: var(--text-secondary);
+    color: #94A3B8 !important;
 }
 .sidebar-step-done .step-dot {
-    background: var(--green-500);
+    background: #10B981;
     box-shadow: 0 0 10px rgba(16,185,129,0.4);
 }
 .sidebar-step-active {
-    background: rgba(124,58,237,0.12);
-    border-color: rgba(124,58,237,0.3);
-    color: var(--violet-400);
+    background: rgba(124,58,237,0.2) !important;
+    border-color: rgba(139,92,246,0.5) !important;
+    color: #A78BFA !important;
     font-weight: 600;
 }
 .sidebar-step-active .step-dot {
-    background: var(--violet-500);
+    background: #8B5CF6;
     box-shadow: 0 0 12px rgba(124,58,237,0.6);
     animation: pulse-dot 2s ease-in-out infinite;
 }
@@ -206,7 +253,7 @@ section[data-testid="stSidebar"] > div {
     opacity: 0.4;
 }
 .sidebar-step-locked .step-dot {
-    background: var(--text-muted);
+    background: #64748B;
 }
 .step-dot {
     width: 8px;
@@ -234,17 +281,17 @@ section[data-testid="stSidebar"] > div {
 
 /* ── KPI METRIC CARDS ── */
 div[data-testid="stMetric"] {
-    background: var(--bg-elevated) !important;
-    border: 1px solid var(--border-soft) !important;
-    border-top: 2px solid var(--violet-600) !important;
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-top: 3px solid var(--violet-600) !important;
     border-radius: var(--radius-md) !important;
     padding: 18px 20px !important;
-    box-shadow: var(--shadow-md), var(--shadow-glow) !important;
+    box-shadow: var(--shadow-md) !important;
     transition: transform 0.2s ease, box-shadow 0.2s ease !important;
 }
 div[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-lg), 0 0 50px rgba(124,58,237,0.18) !important;
+    box-shadow: var(--shadow-lg) !important;
 }
 div[data-testid="stMetricLabel"] > div {
     color: var(--text-muted) !important;
@@ -261,20 +308,19 @@ div[data-testid="stMetricValue"] > div {
     line-height: 1.1 !important;
 }
 
-/* ── GLASS CARDS ── */
+/* ── GLASS & ELEVATION CARDS ── */
 .glass-card {
-    background: rgba(20, 20, 38, 0.85);
-    border: 1px solid var(--border-soft);
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.04);
+    box-shadow: var(--shadow-md) !important;
     padding: 24px 28px;
     margin-bottom: 20px;
-    backdrop-filter: blur(12px);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .glass-card:hover {
-    border-color: rgba(124,58,237,0.35);
-    box-shadow: var(--shadow-lg), 0 0 40px rgba(124,58,237,0.1);
+    border-color: rgba(124,58,237,0.35) !important;
+    box-shadow: var(--shadow-lg) !important;
 }
 
 /* Accent-top cards (for section headers) */
@@ -302,21 +348,21 @@ div[data-testid="stMetricValue"] > div {
     display: flex;
     gap: 16px;
     align-items: flex-start;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-dim);
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
     border-radius: var(--radius-md);
     padding: 16px 20px;
     margin-bottom: 12px;
     transition: all 0.2s ease;
 }
 .rec-card:hover {
-    border-color: var(--border-soft);
+    border-color: var(--border-soft) !important;
     transform: translateX(3px);
 }
-.rec-card-critical { border-left: 3px solid var(--red-500); }
-.rec-card-high     { border-left: 3px solid var(--amber-500); }
-.rec-card-medium   { border-left: 3px solid var(--cyan-500); }
-.rec-card-low      { border-left: 3px solid var(--text-muted); }
+.rec-card-critical { border-left: 3px solid var(--red-500) !important; }
+.rec-card-high     { border-left: 3px solid var(--amber-500) !important; }
+.rec-card-medium   { border-left: 3px solid var(--cyan-500) !important; }
+.rec-card-low      { border-left: 3px solid var(--text-muted) !important; }
 .rec-priority-dot {
     width: 10px;
     height: 10px;
@@ -327,12 +373,12 @@ div[data-testid="stMetricValue"] > div {
 .rec-title {
     font-size: 0.9rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--text-primary) !important;
     margin-bottom: 4px;
 }
 .rec-reason {
     font-size: 0.8rem;
-    color: var(--text-secondary);
+    color: var(--text-secondary) !important;
     line-height: 1.5;
 }
 
@@ -341,8 +387,8 @@ div[data-testid="stMetricValue"] > div {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(124,58,237,0.12);
-    color: var(--violet-400);
+    background: rgba(124,58,237,0.1);
+    color: #6D28D9 !important;
     border: 1px solid rgba(124,58,237,0.3);
     border-radius: 20px;
     padding: 4px 14px;
@@ -355,13 +401,13 @@ div[data-testid="stMetricValue"] > div {
 .stage-header {
     font-size: 2rem;
     font-weight: 800;
-    color: var(--text-primary);
+    color: var(--text-primary) !important;
     letter-spacing: -0.03em;
     line-height: 1.2;
     margin-bottom: 8px;
 }
 .stage-sub {
-    color: var(--text-secondary);
+    color: var(--text-secondary) !important;
     font-size: 0.9rem;
     line-height: 1.7;
     max-width: 700px;
@@ -378,9 +424,9 @@ div[data-testid="stMetricValue"] > div {
     display: flex;
     gap: 14px;
     align-items: flex-start;
-    background: linear-gradient(135deg, rgba(124,58,237,0.07) 0%, rgba(6,182,212,0.04) 100%);
-    border: 1px solid rgba(124,58,237,0.22);
-    border-left: 3px solid var(--violet-500);
+    background: rgba(124,58,237,0.05) !important;
+    border: 1px solid rgba(124,58,237,0.2) !important;
+    border-left: 4px solid var(--violet-600) !important;
     border-radius: 0 var(--radius-md) var(--radius-md) 0;
     padding: 18px 22px;
     margin: 20px 0;
@@ -392,19 +438,19 @@ div[data-testid="stMetricValue"] > div {
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 1px;
-    background: linear-gradient(90deg, var(--violet-500), transparent);
+    background: rgba(124,58,237,0.3);
 }
 .iris-avatar {
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--violet-600), var(--cyan-500));
+    background: rgba(124,58,237,0.15) !important;
+    border: 1px solid rgba(124,58,237,0.3) !important;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 1rem;
     flex-shrink: 0;
-    box-shadow: 0 0 16px rgba(124,58,237,0.4);
 }
 .iris-insight-body {
     flex: 1;
@@ -414,24 +460,24 @@ div[data-testid="stMetricValue"] > div {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--violet-400);
+    color: #6D28D9 !important;
     margin-bottom: 6px;
 }
 .iris-insight-text {
     font-size: 0.88rem;
-    color: #CBD5E1;
+    color: #1E293B !important;
     line-height: 1.75;
 }
 
 /* Why card (EDA explanations) */
 .why-card {
-    background: rgba(14,14,26,0.7);
-    border: 1px solid var(--border-dim);
-    border-left: 3px solid var(--cyan-500);
+    background: #F8FAFC !important;
+    border: 1px solid #E2E8F0 !important;
+    border-left: 3px solid #0891B2 !important;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     padding: 14px 18px;
     margin-top: 14px;
-    color: var(--text-secondary);
+    color: #334155 !important;
     font-size: 0.84rem;
     line-height: 1.65;
 }
@@ -443,7 +489,7 @@ div[data-testid="stMetricValue"] > div {
     letter-spacing: -0.04em;
 }
 .health-bar-wrap {
-    background: var(--bg-base);
+    background: #E2E8F0;
     border-radius: 4px;
     height: 6px;
     overflow: hidden;
@@ -457,8 +503,8 @@ div[data-testid="stMetricValue"] > div {
 
 /* ── STEP / FEATURE CARDS ── */
 .step-card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-soft);
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
     border-radius: var(--radius-lg);
     padding: 24px 28px;
     margin-bottom: 20px;
@@ -467,17 +513,19 @@ div[data-testid="stMetricValue"] > div {
 }
 
 .feature-card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-dim);
-    border-radius: var(--radius-md);
-    padding: 20px;
+    background: #FFFFFF !important;
+    border: 1px solid #DDD6FE !important;
+    border-radius: 10px;
+    padding: 17px 18px;
     transition: all 0.2s ease;
     height: 100%;
+    min-height: 128px;
+    box-shadow: 0 3px 12px rgba(76,29,149,0.05);
 }
 .feature-card:hover {
-    border-color: var(--border-soft);
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
+    border-color: rgba(124,58,237,0.6) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(76,29,149,0.12);
 }
 
 /* Domain / objective selector cards */
@@ -524,78 +572,97 @@ div[data-testid="stMetricValue"] > div {
 
 /* ── BUTTONS ── */
 div.stButton > button {
+    background: #FFFFFF !important;
+    color: #1E293B !important;
+    border: 1px solid #CBD5E1 !important;
     border-radius: var(--radius-sm) !important;
     font-weight: 600 !important;
     font-size: 0.86rem !important;
     letter-spacing: 0.01em !important;
     transition: all 0.18s ease !important;
-    border: 1px solid transparent !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.02) !important;
+}
+div.stButton > button:hover {
+    background: #F8FAFC !important;
+    color: #6D28D9 !important;
+    border-color: #8B5CF6 !important;
 }
 
-/* Primary CTA — gradient */
+/* Primary CTA — flat color */
 div.stButton > button[kind="primary"],
 div.stButton > button[data-testid*="primary"] {
-    background: linear-gradient(135deg, var(--violet-600) 0%, #6D28D9 100%) !important;
-    color: #fff !important;
-    border: 1px solid rgba(124,58,237,0.4) !important;
-    box-shadow: 0 4px 15px rgba(124,58,237,0.3) !important;
+    background: #7C3AED !important;
+    color: #FFFFFF !important;
+    border: 1px solid #6D28D9 !important;
+    box-shadow: 0 4px 14px rgba(124,58,237,0.2) !important;
 }
 div.stButton > button[kind="primary"]:hover {
-    background: linear-gradient(135deg, #6D28D9 0%, #5B21B6 100%) !important;
-    box-shadow: 0 6px 20px rgba(124,58,237,0.45) !important;
+    background: #6D28D9 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 6px 20px rgba(124,58,237,0.3) !important;
     transform: translateY(-1px) !important;
 }
 
 /* Download buttons */
 div[data-testid="stDownloadButton"] > button {
-    background: rgba(6,182,212,0.08) !important;
-    border: 1px solid rgba(6,182,212,0.35) !important;
-    color: var(--cyan-400) !important;
+    background: rgba(8,145,178,0.08) !important;
+    border: 1px solid rgba(8,145,178,0.35) !important;
+    color: #0891B2 !important;
     border-radius: var(--radius-sm) !important;
     font-weight: 600 !important;
 }
 div[data-testid="stDownloadButton"] > button:hover {
-    background: rgba(6,182,212,0.18) !important;
-    border-color: var(--cyan-500) !important;
+    background: rgba(8,145,178,0.16) !important;
+    border-color: #0891B2 !important;
     transform: translateY(-1px) !important;
-    box-shadow: 0 4px 15px rgba(6,182,212,0.2) !important;
+    box-shadow: 0 4px 14px rgba(8,145,178,0.2) !important;
 }
 
 /* ── TABS ── */
 div[data-testid="stTabs"] > div > div > button {
-    font-size: 0.82rem !important;
+    font-size: 0.85rem !important;
     font-weight: 600 !important;
-    color: var(--text-muted) !important;
+    color: #475569 !important;
     border-radius: 8px 8px 0 0 !important;
     padding: 8px 16px !important;
     transition: all 0.15s ease !important;
     border-bottom: 2px solid transparent !important;
 }
 div[data-testid="stTabs"] > div > div > button[aria-selected="true"] {
-    color: var(--violet-400) !important;
-    border-bottom: 2px solid var(--violet-500) !important;
-    background: rgba(124,58,237,0.07) !important;
+    color: #7C3AED !important;
+    border-bottom: 2px solid #7C3AED !important;
+    background: rgba(124,58,237,0.06) !important;
+    font-weight: 700 !important;
 }
 div[data-testid="stTabs"] > div > div > button:hover {
-    color: var(--text-secondary) !important;
-    background: rgba(255,255,255,0.03) !important;
+    color: #0F172A !important;
+    background: #F1F5F9 !important;
 }
 
-/* ── INPUTS & SELECTS ── */
+/* ── INPUTS & SELECTS & TEXTAREAS ── */
 div[data-testid="stSelectbox"] > div > div,
 div[data-testid="stTextInput"] > div > div > input,
-div[data-testid="stTextArea"] > div > div > textarea {
-    background: var(--bg-elevated) !important;
-    border: 1px solid var(--border-dim) !important;
+div[data-testid="stTextArea"] > div > div > textarea,
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div,
+textarea, input, select {
+    background: #FFFFFF !important;
+    border: 1px solid #CBD5E1 !important;
     border-radius: var(--radius-sm) !important;
-    color: var(--text-primary) !important;
+    color: #0F172A !important;
     font-family: 'Inter', sans-serif !important;
 }
 div[data-testid="stSelectbox"] > div > div:focus-within,
 div[data-testid="stTextInput"] > div > div > input:focus,
 div[data-testid="stTextArea"] > div > div > textarea:focus {
-    border-color: rgba(124,58,237,0.5) !important;
-    box-shadow: 0 0 0 3px rgba(124,58,237,0.1) !important;
+    border-color: #7C3AED !important;
+    box-shadow: 0 0 0 3px rgba(124,58,237,0.15) !important;
+}
+
+/* Input & Radio & Selectbox Labels */
+label, .stRadio label, .stSelectbox label, .stTextInput label, .stTextArea label, .stMultiSelect label {
+    color: #1E293B !important;
+    font-weight: 600 !important;
 }
 
 /* ── SUCCESS / WARNING / INFO ALERTS ── */
@@ -607,19 +674,38 @@ div[data-testid="stAlert"] {
 
 /* ── EXPANDERS ── */
 div[data-testid="stExpander"] {
-    border: 1px solid var(--border-dim) !important;
+    border: 1px solid #E2E8F0 !important;
     border-radius: var(--radius-md) !important;
-    background: var(--bg-elevated) !important;
+    background: #FFFFFF !important;
 }
-div[data-testid="stExpander"]:hover {
-    border-color: var(--border-soft) !important;
+div[data-testid="stExpander"] details summary {
+    color: #0F172A !important;
+    font-weight: 700 !important;
+    font-size: 0.95rem !important;
+    background: #F5F1FF !important;
+    border-left: 3px solid #7C3AED !important;
+    border-radius: var(--radius-md) !important;
+}
+div[data-testid="stExpander"] details summary * {
+    color: #0F172A !important;
+}
+div[data-testid="stExpander"] details summary:hover {
+    background: #F1F5F9 !important;
+    color: #6D28D9 !important;
 }
 
 /* ── DATAFRAMES ── */
 div[data-testid="stDataFrame"] {
-    border: 1px solid var(--border-dim) !important;
-    border-radius: var(--radius-md) !important;
+    border: 1px solid #DDD6FE !important;
+    border-radius: 10px !important;
     overflow: hidden;
+    box-shadow: 0 3px 12px rgba(76,29,149,0.06) !important;
+    background: #FFFFFF !important;
+}
+div[data-testid="stDataFrame"] [role="columnheader"] {
+    font-weight: 800 !important;
+    color: #4C1D95 !important;
+    background: #F3E8FF !important;
 }
 
 /* ── CLEANING LOG TIMELINE ── */
@@ -705,6 +791,7 @@ def init_state():
         "iris_says": {},
         "chat_history": [],
         "dataset_context": "",
+        "dataset_fingerprint": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -713,25 +800,32 @@ def init_state():
 init_state()
 S = st.session_state
 
+if S["df"] is not None and not S["df"].columns.is_unique:
+    duplicate_columns = S["df"].columns[S["df"].columns.duplicated()].unique().tolist()
+    S["df"] = S["df"].loc[:, ~S["df"].columns.duplicated()].copy()
+    S["col_types"] = infer_all_types(S["df"])
+    S["cols_by_type"] = get_columns_by_type(S["df"], S["col_types"])
+    S["quality"] = None
+    S["col_stats"] = None
+    S["corr"] = None
+    S["cleaning_log"].append(
+        f"Removed duplicate generated columns from the active dataset: {', '.join(map(str, duplicate_columns))}."
+    )
+
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 STEP_META = [
-    ("business_collection", "🎯", "1. Business & Data Collection"),
-    ("data_cleaning",        "🧹", "2. Data Cleaning & Preprocessing"),
-    ("eda",                 "📊", "3. Exploratory Data Analysis (EDA)"),
-    ("feature_engineering", "⚙️", "4. Feature Engineering"),
-    ("communication",       "📢", "5. Communication & Export"),
+    ("business_collection", "", "1. Business & Data Collection"),
+    ("data_cleaning",        "", "2. Data Cleaning & Preprocessing"),
+    ("eda",                 "", "3. Exploratory Data Analysis (EDA)"),
+    ("feature_engineering", "", "4. Feature Engineering"),
+    ("communication",       "", "5. Communication & Export"),
 ]
 
 with st.sidebar:
-    # ── Brand Header ────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="iris-brand">
-        <span class="iris-brand-icon">🌸</span>
-        <div class="iris-brand-name">Iris Studio</div>
-        <div class="iris-brand-tagline">Data Science Lifecycle</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # ── Brand Header with Uploaded Logo ────────────────────────────────────
+    logo_img_html = f'<img src="data:image/jpeg;base64,{LOGO_B64}" style="width:95px; height:95px; object-fit:cover; border-radius:50%; border:2px solid rgba(139,92,246,0.5); box-shadow:0 0 20px rgba(124,58,237,0.3); margin-bottom:8px;" />' if LOGO_B64 else '<div style="font-size:2rem; font-weight:900; color:#8B5CF6;">IRIS</div>'
+    st.markdown(f'<div class="iris-brand" style="text-align:center; padding:18px 12px 14px; border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:12px;">{logo_img_html}<div class="iris-brand-name" style="font-size:1.1rem; font-weight:800; color:#A78BFA; letter-spacing:-0.02em;">Iris Studio</div><div class="iris-brand-tagline" style="font-size:0.73rem; color:#94A3B8; font-weight:500;">Data Science Lifecycle</div></div>', unsafe_allow_html=True)
 
     # ── Step Stepper ─────────────────────────────────────────────────────────
     st.markdown("<div class='sidebar-section-label'>Pipeline</div>", unsafe_allow_html=True)
@@ -749,42 +843,21 @@ with st.sidebar:
         num = i + 1
         if i < step_idx:
             # Completed — clickable
-            st.markdown(f"""
-            <div class="sidebar-step-item sidebar-step-done">
-                <div class="step-dot" style="background:#10B981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></div>
-                <div style="flex:1; font-size:0.82rem; font-weight:500; color:#94A3B8;">
-                    <span style="font-size:0.65rem; font-weight:700; color:#475569; letter-spacing:0.08em;">STEP {num}</span><br/>{label}
-                </div>
-                <span style="font-size:0.75rem; color:#10B981;">✓</span>
-            </div>
-            """, unsafe_allow_html=True)
+            chk_icon = ICONS.get("check", "✓")
+            st.markdown(f'<div class="sidebar-step-item sidebar-step-done"><div class="step-dot" style="background:#10B981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></div><div style="flex:1; font-size:0.82rem; font-weight:500; color:#94A3B8;"><span style="font-size:0.65rem; font-weight:700; color:#475569; letter-spacing:0.08em;">STEP {num}</span><br/>{label}</div><span style="display:flex; align-items:center; color:#10B981;">{chk_icon}</span></div>', unsafe_allow_html=True)
             # Invisible button for navigation
-            if st.button(f"Go to {label}", key=f"side_nav_{sid}", use_container_width=True,
-                         help=f"Return to {label}"):
+            if st.button(f"Go to {label}", key=f"side_nav_{sid}", use_container_width=True, help=f"Return to {label}"):
                 S["step"] = sid
+                S["_scroll_to_stage_top"] = True
                 st.rerun()
         elif i == step_idx:
             # Active
-            st.markdown(f"""
-            <div class="sidebar-step-item sidebar-step-active">
-                <div class="step-dot"></div>
-                <div style="flex:1;">
-                    <span style="font-size:0.65rem; font-weight:700; color:#A78BFA; letter-spacing:0.08em;">STEP {num} — ACTIVE</span><br/>{label}
-                </div>
-                <span style="font-size:0.65rem; color:#A78BFA;">▶</span>
-            </div>
-            """, unsafe_allow_html=True)
+            arr_icon = ICONS.get("arrow_r", "▶")
+            st.markdown(f'<div class="sidebar-step-item sidebar-step-active"><div class="step-dot"></div><div style="flex:1;"><span style="font-size:0.65rem; font-weight:700; color:#A78BFA; letter-spacing:0.08em;">STEP {num} — ACTIVE</span><br/>{label}</div><span style="display:flex; align-items:center; color:#A78BFA;">{arr_icon}</span></div>', unsafe_allow_html=True)
         else:
             # Locked
-            st.markdown(f"""
-            <div class="sidebar-step-item sidebar-step-locked">
-                <div class="step-dot"></div>
-                <div style="flex:1;">
-                    <span style="font-size:0.65rem; font-weight:700; letter-spacing:0.08em;">STEP {num}</span><br/>{label}
-                </div>
-                <span style="font-size:0.7rem; opacity:0.4;">🔒</span>
-            </div>
-            """, unsafe_allow_html=True)
+            lck_icon = ICONS.get("lock", "🔒")
+            st.markdown(f'<div class="sidebar-step-item sidebar-step-locked"><div class="step-dot"></div><div style="flex:1;"><span style="font-size:0.65rem; font-weight:700; letter-spacing:0.08em;">STEP {num}</span><br/>{label}</div><span style="display:flex; align-items:center; opacity:0.4;">{lck_icon}</span></div>', unsafe_allow_html=True)
 
     # ── Download Links ────────────────────────────────────────────────────────
     if S["df"] is not None and S["step"] != "business_collection":
@@ -814,21 +887,15 @@ def iris_says_block(key: str, compute_fn=None, *args):
             S["iris_says"][key] = compute_fn(*args)
     text = S["iris_says"].get(key, "")
     if text:
-        st.markdown(f"""
-        <div class="iris-insight">
-            <div class="iris-avatar">🌸</div>
-            <div class="iris-insight-body">
-                <div class="iris-insight-label">Iris AI Analysis</div>
-                <div class="iris-insight-text">{text}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        iris_icon = ICONS.get("iris", "")
+        st.markdown(f'<div class="iris-insight"><div class="iris-avatar" style="display:flex; align-items:center; justify-content:center;">{iris_icon}</div><div class="iris-insight-body"><div class="iris-insight-label">Iris AI Analysis</div><div class="iris-insight-text">{text}</div></div></div>', unsafe_allow_html=True)
 
 
 def next_step(current: str):
     idx = STEPS.index(current)
     if idx + 1 < len(STEPS):
         S["step"] = STEPS[idx + 1]
+        S["_scroll_to_stage_top"] = True
         st.rerun()
 
 
@@ -837,19 +904,19 @@ def next_step(current: str):
 # STAGE 1 — Business Understanding & Data Collection
 # ══════════════════════════════════════════════════════════════════════════════
 if S["step"] == "business_collection":
-    st.markdown("""
-    <div style='text-align:center; padding: 40px 0 16px; position:relative;'>
-        <div style='font-size:3.5rem; line-height:1; margin-bottom:16px;
-                    filter: drop-shadow(0 0 40px rgba(124,58,237,0.7));'>🌸</div>
+    if S.pop("_scroll_to_stage_top", False):
+        scroll_to_top()
+    hero_logo_html = f'<img src="data:image/jpeg;base64,{LOGO_B64}" style="width:105px; height:105px; object-fit:cover; border-radius:50%; border:3px solid rgba(139,92,246,0.5); box-shadow:0 0 25px rgba(124,58,237,0.25); margin-bottom:14px;" />' if LOGO_B64 else ""
+    st.markdown(f"""
+    <div style='text-align:center; padding: 24px 0 16px; position:relative;'>
+        <div style='margin-bottom:12px;'>{hero_logo_html}</div>
         <h1 style='
             font-family: Inter, sans-serif;
             font-size:2.8rem; font-weight:900; letter-spacing:-0.04em; margin:0 0 12px;
-            background: linear-gradient(135deg, #F1F5F9 0%, #A78BFA 45%, #22D3EE 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; line-height:1.1;'>
+            color:#0F172A; line-height:1.1;'>
             Iris Data Science Studio
         </h1>
-        <p style='color:#94A3B8; font-size:1rem; max-width:600px; margin:0 auto 8px; line-height:1.75;'>
+        <p style='color:#475569; font-size:1rem; max-width:620px; margin:0 auto 8px; line-height:1.75; font-weight:500;'>
             Select your domain objective, ingest your dataset, and let Iris automate data quality checks, narrative EDA, and feature engineering.
         </p>
     </div>
@@ -857,8 +924,8 @@ if S["step"] == "business_collection":
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("🎯 Stage 1A: Domain & Business Objective Setup", expanded=True):
-        st.markdown("<div style='color:#94A3B8; font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;'>Select Industry Domain</div>", unsafe_allow_html=True)
+    with st.expander("Stage 1A: Domain & Business Objective Setup", expanded=True):
+        st.markdown("<div style='color:#64748B; font-size:0.8rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;'>Select Industry Domain</div>", unsafe_allow_html=True)
         domains = get_domain_templates()
         d_keys = list(domains.keys())
         d_cols = st.columns(len(d_keys))
@@ -876,13 +943,13 @@ if S["step"] == "business_collection":
                     S["business_goal"] = d_info["default_goal"]
                     st.rerun()
                     
-        st.markdown("<div style='margin-top:16px; color:#94A3B8; font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;'>Select Objective Template</div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:20px; color:#64748B; font-size:0.8rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;'>Select Objective Template</div>", unsafe_allow_html=True)
         selected_obj = S.get("objective", "explore")
         objs = [
-            ("predict", "📈 Predict Outcomes"),
-            ("segment", "👥 Segment Data"),
-            ("detect", "🔍 Detect Anomalies"),
-            ("explore", "📊 Explore & Report")
+            ("predict", "Predict Outcomes"),
+            ("segment", "Segment Data"),
+            ("detect", "Detect Anomalies"),
+            ("explore", "Explore & Report")
         ]
         o_cols = st.columns(4)
         for idx, (o_key, o_label) in enumerate(objs):
@@ -899,10 +966,10 @@ if S["step"] == "business_collection":
         cur_obj_label = dict(objs).get(S.get('objective', 'explore'), 'Explore & Report')
         
         st.markdown(f"""
-        <div style='display:flex; align-items:center; gap:12px; background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25); padding:10px 16px; border-radius:10px; margin: 16px 0 14px;'>
-            <div style='font-size:0.75rem; font-weight:700; color:#A78BFA; text-transform:uppercase; letter-spacing:0.08em;'>Active Setup:</div>
-            <div style='font-size:0.85rem; font-weight:600; color:#F1F5F9;'>
-                Domain: <span style='color:#38BDF8;'>{cur_dom_name}</span> &nbsp;|&nbsp; Objective: <span style='color:#34D399;'>{cur_obj_label}</span>
+        <div class='stage-objective-summary' style='display:flex; align-items:center; gap:12px; padding:12px 18px; margin:20px 0 16px; box-shadow:0 2px 8px rgba(124,58,237,0.06);'>
+            <div style='font-size:0.75rem; font-weight:900; color:#6D28D9; text-transform:uppercase; letter-spacing:0.08em;'>Active Setup:</div>
+            <div style='font-size:0.9rem; font-weight:700; color:#0F172A;'>
+                Domain: <span style='color:#7C3AED;'>{cur_dom_name}</span> &nbsp;|&nbsp; Objective: <span style='color:#059669;'>{cur_obj_label}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -916,89 +983,145 @@ if S["step"] == "business_collection":
         S["business_goal"] = goal_input
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("### 📂 Stage 1B: Data Collection & Profiling")
+    render_section_header("Stage 1B: Data Collection & Profiling", "upload")
     
     col_l, col_m, col_r = st.columns([1, 2, 1])
     with col_m:
-        uploaded = st.file_uploader("Upload CSV", type=["csv", "txt"], label_visibility="hidden")
-        st.markdown("<div style='text-align:center; color:#8B5CF6; font-size:0.85rem; margin:16px 0 8px; font-weight:700;'>— OR LOAD DEMO DATASET —</div>", unsafe_allow_html=True)
+        uploaded = st.file_uploader(
+            "Upload CSV or Excel workbook",
+            type=["csv", "txt", "xlsx", "xls"],
+            label_visibility="visible",
+        )
+        sheet_url = st.text_input(
+            "Google Sheets link",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            help="The sheet must be shared as Anyone with the link can view.",
+            key="google_sheet_url",
+        )
+        load_sheet_clicked = st.button(
+            "Load Google Sheet",
+            use_container_width=True,
+            key="btn_load_google_sheet",
+        )
+        st.markdown("<div style='text-align:center; color:#7C3AED; font-size:0.85rem; margin:16px 0 8px; font-weight:800; letter-spacing:0.05em;'>— OR LOAD DEMO DATASET —</div>", unsafe_allow_html=True)
         
         d1, d2, d3 = st.columns(3)
         sample_bytes = None
         
         with d1:
-            if st.button("🚢 Titanic Survival", use_container_width=True, key="demo_titanic"):
+            if st.button("Titanic Survival", use_container_width=True, key="demo_titanic"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "titanic.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
-            if st.button("🏥 Heart Disease", use_container_width=True, key="demo_heart"):
+            if st.button("Heart Disease", use_container_width=True, key="demo_heart"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "heart_disease.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
                         
         with d2:
-            if st.button("🏠 Housing Prices", use_container_width=True, key="demo_housing"):
+            if st.button("Housing Prices", use_container_width=True, key="demo_housing"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "housing.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
-            if st.button("📱 Customer Churn", use_container_width=True, key="demo_churn"):
+            if st.button("Customer Churn", use_container_width=True, key="demo_churn"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "customer_churn.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
                         
         with d3:
-            if st.button("🌸 Iris Flowers", use_container_width=True, key="demo_iris"):
+            if st.button("Iris Flowers", use_container_width=True, key="demo_iris"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "iris.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
-            if st.button("🛒 E-Commerce Sales", use_container_width=True, key="demo_ecom"):
+            if st.button("E-Commerce Sales", use_container_width=True, key="demo_ecom"):
                 path = os.path.join(os.path.dirname(__file__), "samples", "ecommerce_sales.csv")
                 if os.path.exists(path):
                     with open(path, "rb") as f:
                         sample_bytes = f.read()
 
-        file_bytes = uploaded.read() if uploaded else sample_bytes
-        if file_bytes:
-            with st.spinner("Parsing dataset... 🌸"):
-                df, meta = load_csv(file_bytes)
-                col_types = infer_all_types(df)
-                cols_by_type = get_columns_by_type(df, col_types)
-            S["df"] = df
-            S["meta"] = meta
-            S["col_types"] = col_types
-            S["cols_by_type"] = cols_by_type
-            S["target_col"] = suggest_target_column(df, S.get("domain", "general"))
-            for k in ["quality", "col_stats", "corr", "iris_says"]:
-                S[k] = {} if k == "iris_says" else None
+        file_bytes = uploaded.getvalue() if uploaded else sample_bytes
+        if load_sheet_clicked:
+            if not sheet_url.strip():
+                st.warning("Paste a Google Sheets link first.")
+            else:
+                try:
+                    with st.spinner("Loading Google Sheet..."):
+                        df, meta = load_google_sheet(sheet_url)
+                    dataset_fingerprint = hashlib.sha256(df.to_csv(index=False).encode("utf-8")).hexdigest()
+                    if dataset_fingerprint != S.get("dataset_fingerprint"):
+                        S["cleaning_log"] = []
+                        S["dataset_fingerprint"] = dataset_fingerprint
+                    S["df"] = df
+                    S["meta"] = meta
+                    S["col_types"] = infer_all_types(df)
+                    S["cols_by_type"] = get_columns_by_type(df, S["col_types"])
+                    S["target_col"] = suggest_target_column(df, S.get("domain", "general"))
+                    for key in ["quality", "col_stats", "corr", "iris_says"]:
+                        S[key] = {} if key == "iris_says" else None
+                    st.success("Google Sheet loaded successfully.")
+                except Exception as error:
+                    st.error(f"Could not load that Google Sheet. Check the URL and sharing access. Details: {error}")
+
+        if file_bytes and not load_sheet_clicked:
+            dataset_fingerprint = hashlib.sha256(file_bytes).hexdigest()
+            if dataset_fingerprint != S.get("dataset_fingerprint"):
+                S["cleaning_log"] = []
+                S["dataset_fingerprint"] = dataset_fingerprint
+            file_name = uploaded.name.lower() if uploaded else ""
+            try:
+                with st.spinner("Parsing dataset... 🌸"):
+                    if file_name.endswith((".xlsx", ".xls")):
+                        sheet_names = get_excel_sheet_names(file_bytes)
+                        selected_sheet = st.selectbox(
+                            "Worksheet",
+                            sheet_names,
+                            key=f"excel_sheet_{uploaded.name}",
+                        )
+                        df, meta = load_excel(file_bytes, selected_sheet)
+                    else:
+                        df, meta = load_csv(file_bytes)
+                    col_types = infer_all_types(df)
+                    cols_by_type = get_columns_by_type(df, col_types)
+                S["df"] = df
+                S["meta"] = meta
+                S["col_types"] = col_types
+                S["cols_by_type"] = cols_by_type
+                S["target_col"] = suggest_target_column(df, S.get("domain", "general"))
+                for key in ["quality", "col_stats", "corr", "iris_says"]:
+                    S[key] = {} if key == "iris_says" else None
+            except Exception as error:
+                st.error(f"Could not read this file. Check that it is a supported CSV or Excel workbook. Details: {error}")
 
     if S["df"] is not None:
+        if st.button("Next: Data Cleaning & Preprocessing Studio →", type="primary", key="btn_business_next_top", use_container_width=True):
+            next_step("business_collection")
+
         df = S["df"]
         meta = S["meta"]
         col_types = S["col_types"]
         health = compute_data_health_score(df)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 Dataset Health & Profiling Snapshot")
+        render_section_header("Dataset Health & Profiling Snapshot", "health", badge=f"Health: {health['score']}/100", badge_color="#10B981" if health['score'] >= 80 else "#F59E0B")
         
         p1, p2, p3, p4 = st.columns(4)
         with p1:
             render_kpi_card("Total Rows", f"{len(df):,}", f"{meta['encoding']} encoding", "#7C3AED")
         with p2:
-            render_kpi_card("Total Columns", str(len(df.columns)), f"{health['missing_cols']} missing cols", "#06B6D4")
+            render_kpi_card("Total Columns", str(len(df.columns)), f"{health['missing_cols']} missing cols", "#0891B2")
         with p3:
             render_kpi_card("Health Score", f"{health['score']} / 100", "Data Quality Index", "#10B981" if health['score'] >= 80 else "#F59E0B")
         with p4:
             s_target = S.get("target_col", "None")
-            render_kpi_card("Target Feature", str(s_target), "Suggested Target", "#EC4899")
+            render_kpi_card("Target Feature", str(s_target), "Suggested Target", "#7C3AED")
 
         st.markdown("<br>", unsafe_allow_html=True)
         render_data_preview_table(df, key_prefix="stage1")
-
 
         type_summary = {}
         for t in set(col_types.values()):
@@ -1007,15 +1130,46 @@ if S["step"] == "business_collection":
         st.markdown("**Inferred Feature Types:**", unsafe_allow_html=True)
         chips = ""
         type_colors = {
-            "numeric": "#8B5CF6", "categorical": "#06B6D4", "datetime": "#F59E0B",
-            "text": "#EC4899", "boolean": "#3B82F6", "id": "#94A3B8"
+            "numeric": "#7C3AED", "categorical": "#0891B2", "datetime": "#D97706",
+            "text": "#DB2777", "boolean": "#2563EB", "id": "#64748B"
         }
         for t, cols in type_summary.items():
-            color = type_colors.get(t, "#888")
-            chips += f'<span class="type-badge" style="background:{color}22; color:{color}; border:1px solid {color}55;">{t} ({len(cols)})</span> '
+            color = type_colors.get(t, "#7C3AED")
+            chips += f'<span class="type-badge" style="background:{color}18; color:{color}; border:1px solid {color}40; font-weight:700;">{t} ({len(cols)})</span> '
         st.markdown(chips, unsafe_allow_html=True)
 
-        render_iris_says(f"Dataset successfully loaded! Health index is **{health['score']}/100**. Target candidate column suggested: **'{S.get('target_col')}'**.", "Iris Data Profiler")
+        render_iris_says(f"Dataset successfully loaded! Health index is {health['score']}/100. Target candidate column suggested: '{S.get('target_col')}'.", "Iris Data Profiler")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_section_header("Interactive Feature Directory (Click Any Card to Explore Column)", "explore")
+        st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:18px; font-weight:500;'>Click 'Explore Column' on any feature card below to navigate directly to its detailed distribution, box plot, and statistical breakdown.</div>", unsafe_allow_html=True)
+        
+        f_cols = st.columns(3)
+        for idx, col_name in enumerate(df.columns):
+            ctype = col_types.get(col_name, "unknown")
+            null_cnt = int(df[col_name].isnull().sum())
+            null_pct = round((null_cnt / len(df)) * 100, 1) if len(df) > 0 else 0
+            uniq_cnt = int(df[col_name].nunique())
+            color = type_colors.get(ctype, "#7C3AED")
+            
+            with f_cols[idx % 3]:
+                st.markdown(f'''
+                <div class="feature-card" style="border-top:3px solid {color} !important; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <span style="font-weight:800; font-size:1.0rem; color:#0F172A;">{col_name}</span>
+                        <span class="type-badge" style="background:{color}1A; color:{color}; border:1px solid {color}40; font-size:0.7rem; font-weight:700;">{ctype}</span>
+                    </div>
+                    <div style="font-size:0.82rem; color:#475569; margin-bottom:6px;">
+                        Nulls: <strong style="color:{"#DC2626" if null_cnt > 0 else "#059669"};">{null_cnt} ({null_pct}%)</strong> &nbsp;|&nbsp; Distinct: <strong style="color:#7C3AED;">{uniq_cnt:,}</strong>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                if st.button(f"Explore '{col_name}' →", key=f"btn_explore_card_{col_name}", type="primary", use_container_width=True):
+                    S["selected_eda_col"] = col_name
+                    S["step"] = "eda"
+                    S["_scroll_to_stage_top"] = True
+                    st.toast(f"Navigating to EDA Deep-Dive for column '{col_name}'")
+                    st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Next: Data Cleaning & Preprocessing Studio →", type="primary", use_container_width=True):
@@ -1029,6 +1183,9 @@ if S["step"] == "business_collection":
 elif S["step"] == "data_cleaning":
     render_stage_header(2, "Data Cleaning & Preprocessing Studio", "Recommendations-first data preparation: automated diagnosis, health scorecard, and 1-click fixes.")
 
+    if st.button("Next: Exploratory Data Analysis (EDA) →", type="primary", key="btn_clean_next_top", use_container_width=True):
+        next_step("data_cleaning")
+
     df = S["df"]
     if S["quality"] is None:
         with st.spinner("Auditing data quality..."):
@@ -1039,16 +1196,27 @@ elif S["step"] == "data_cleaning":
 
     render_health_scorecard(health["score"], health["missing_cols"], health["dup_rows"], health["outlier_cols"])
 
+    st.markdown("""
+    <div style="background:#F5F1FF; border:1px solid #DDD6FE; border-left:4px solid #7C3AED; border-radius:8px; padding:14px 18px; margin:16px 0 20px;">
+        <div style="font-weight:800; color:#5B21B6; font-size:0.95rem; margin-bottom:4px;">Stage 2 Roadmap: Work Through 7 Steps Before Proceeding</div>
+        <div style="color:#334155; font-size:0.85rem; line-height:1.65;">
+            1. Review automated diagnosis below & execute <strong>Apply All Fixes (1-Click)</strong> if recommendations exist.<br/>
+            2. Inspect each of the <strong>7 cleaning tabs below</strong> (Missing Values, Duplicates, Outliers, Structural, Encoding, Scaling, Reduction).<br/>
+            3. Once steps show <span style="color:#10B981; font-weight:700;">Clean / Ready</span>, click the <strong>Proceed to Stage 3</strong> button at the bottom of the page.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     recs = detect_cleaning_recommendations(df)
     if recs:
-        with st.expander(f"💡 Iris Data Cleaning Recommendations ({len(recs)} Actionable Suggestions)", expanded=True):
+        with st.expander(f"Iris Data Cleaning Recommendations ({len(recs)} Actionable Suggestions)", expanded=True):
             r_col1, r_col2 = st.columns([3, 1])
             with r_col1:
                 for rec in recs:
                     render_recommendation_card(rec["priority"], rec["title"], rec["reason"], rec["col_name"])
             with r_col2:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("⚡ Apply All Fixes (1-Click)", type="primary", use_container_width=True, key="btn_apply_all_recs"):
+                if st.button("Apply All Fixes (1-Click)", type="primary", use_container_width=True, key="btn_apply_all_recs"):
                     new_df = df.copy()
                     applied_cnt = 0
                     for rec in recs:
@@ -1078,49 +1246,117 @@ elif S["step"] == "data_cleaning":
                     S["quality"] = full_quality_report(S["df"], S["col_types"])
                     msg = f"Applied {applied_cnt} recommended data cleaning actions in 1 click!"
                     S["cleaning_log"].append(msg)
-                    st.toast(msg, icon="⚡")
+                    st.toast(msg)
                     st.rerun()
 
     st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
 
+    # ── 7-Step Cleaning Workflow Status Bar ───────────────────────────────────
+    _miss_count = len(q["missing"]) if q and "missing" in q and hasattr(q["missing"], "__len__") else 0
+    _dup_count = int(df.duplicated().sum())
+    _out_count = len(q["outliers"]) if q and "outliers" in q and hasattr(q["outliers"], "__len__") else 0
+    _struct_issues = detect_structural_errors(S["df"])
+    _struct_count = len(_struct_issues)
+    _cat_cols = [c for c, t in S["col_types"].items() if t in ("categorical", "boolean")]
+    _num_cols_raw = [c for c, t in S["col_types"].items() if t == "numeric"]
+
+    def _step_cell(num, label, count, ok_msg):
+        if count == 0:
+            bg = "rgba(5,150,105,0.08)"; border = "#059669"
+            status_html = f'<div style="font-size:0.75rem; font-weight:800; color:#059669;">{ok_msg}</div>'
+        else:
+            bg = "rgba(217,119,6,0.08)"; border = "#D97706"
+            status_html = f'<div style="font-size:0.75rem; font-weight:800; color:#D97706;">{count} issues</div>'
+        return f"""<div style="background:{bg}; border:1px solid {border}40; border-top:3px solid {border};
+                            border-radius:10px; padding:12px 14px; text-align:center; min-width:0; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+                    <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step {num}</div>
+                    <div style="font-size:0.82rem; font-weight:800; color:#0F172A; margin-bottom:5px;">{label}</div>
+                    {status_html}
+                </div>"""
+
+    _log_messages = [message.lower() for message in S["cleaning_log"]]
+    _encoding_applied = any("encoding" in message or "encoded" in message for message in _log_messages)
+    _scaling_applied = any("scaling" in message or "scaled" in message for message in _log_messages)
+    _reduction_reviewed = any(
+        marker in message
+        for message in _log_messages
+        for marker in ("data reduction:", "no constant columns", "correlation reduction", "correlation threshold")
+    )
+
+    def _workflow_status(label, status, color):
+        return f'<div style="font-size:0.75rem; font-weight:800; color:{color};">{status}</div>'
+
+    _encoding_status = "N/A" if not _cat_cols else "Applied" if _encoding_applied else "Not started"
+    _scaling_status = "N/A" if not _num_cols_raw else "Applied" if _scaling_applied else "Not started"
+    _reduction_status = "Reviewed" if _reduction_reviewed else "Not reviewed"
+    _encoding_color = "#059669" if _encoding_applied or not _cat_cols else "#6D28D9"
+    _scaling_color = "#059669" if _scaling_applied or not _num_cols_raw else "#0E7490"
+    _reduction_color = "#059669" if _reduction_reviewed else "#64748B"
+    st.markdown(f"""
+    <div style="margin-bottom:20px;">
+        <div style="font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:0.08em; color:#1E293B; margin-bottom:12px;">Cleaning Workflow — Work through all 7 steps before proceeding</div>
+        <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:10px;">
+            {_step_cell(1, 'Missing Values', _miss_count, 'Clean')}
+            {_step_cell(2, 'Duplicates', _dup_count, 'Clean')}
+            {_step_cell(3, 'Outliers', _out_count, 'Clean')}
+            {_step_cell(4, 'Structural', _struct_count, 'Clean')}
+            <div style="background:rgba(124,58,237,0.06); border:1px solid rgba(124,58,237,0.2); border-top:3px solid #7C3AED; border-radius:10px; padding:12px 14px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+                <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step 5</div>
+                <div style="font-size:0.82rem; font-weight:800; color:#0F172A; margin-bottom:5px;">Encoding</div>
+                {_workflow_status('Encoding', _encoding_status, _encoding_color)}
+            </div>
+            <div style="background:rgba(8,145,178,0.06); border:1px solid rgba(8,145,178,0.2); border-top:3px solid #0891B2; border-radius:10px; padding:12px 14px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+                <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step 6</div>
+                <div style="font-size:0.82rem; font-weight:800; color:#0F172A; margin-bottom:5px;">Scaling</div>
+                {_workflow_status('Scaling', _scaling_status, _scaling_color)}
+            </div>
+            <div style="background:rgba(100,116,139,0.06); border:1px solid rgba(100,116,139,0.2); border-top:3px solid #64748B; border-radius:10px; padding:12px 14px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+                <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step 7</div>
+                <div style="font-size:0.82rem; font-weight:800; color:#0F172A; margin-bottom:5px;">Reduction</div>
+                {_workflow_status('Reduction', _reduction_status, _reduction_color)}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     t_miss, t_dup, t_out, t_struct, t_enc, t_scale, t_red = st.tabs([
-        "Missing Values",
-        "Duplicates",
-        "Treat Outliers",
-        "Structural Errors",
-        "Categorical Encoding",
-        "Feature Scaling",
-        "Data Reduction"
+        "1. Missing Values",
+        "2. Duplicates",
+        "3. Treat Outliers",
+        "4. Structural Errors",
+        "5. Categorical Encoding",
+        "6. Feature Scaling",
+        "7. Data Reduction"
     ])
 
 
     with t_miss:
-        st.markdown("### 🩹 Handling Missing Values")
+        render_section_header("Handling Missing Values", "missing", badge="Step 1 of 7", badge_color="#F59E0B" if _miss_count > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Fill gaps using statistical imputation (mean, median, mode) or drop sparse rows and columns if data loss is acceptable.</div>", unsafe_allow_html=True)
 
         miss_df = q["missing"]
         if len(miss_df) > 0:
-            st.dataframe(miss_df, use_container_width=True)
+            render_styled_dataframe(miss_df, use_container_width=True)
             
             st.markdown("**Batch Quick Imputation:**")
             g1, g2, g3, g4, g5 = st.columns(5)
             with g1:
-                if st.button("📊 Numeric → Median", use_container_width=True, key="btn_imp_med"):
+                if st.button("Numeric → Median", use_container_width=True, key="btn_imp_med"):
                     for c, ct in S["col_types"].items():
                         if ct == "numeric" and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "median")
                             S["cleaning_log"].append(msg)
                     S["quality"] = full_quality_report(S["df"], S["col_types"])
-                    st.toast("Imputed numeric features with median!", icon="📊")
+                    st.toast("Imputed numeric features with median!")
                     st.rerun()
             with g2:
-                if st.button("📈 Numeric → Mean", use_container_width=True, key="btn_imp_mean"):
+                if st.button("Numeric → Mean", use_container_width=True, key="btn_imp_mean"):
                     for c, ct in S["col_types"].items():
                         if ct == "numeric" and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "mean")
                             S["cleaning_log"].append(msg)
                     S["quality"] = full_quality_report(S["df"], S["col_types"])
-                    st.toast("Imputed numeric features with mean!", icon="📈")
+                    st.toast("Imputed numeric features with mean!")
                     st.rerun()
             with g3:
                 if st.button("🏷️ Categorical → Mode", use_container_width=True, key="btn_imp_mode"):
@@ -1169,32 +1405,32 @@ elif S["step"] == "data_cleaning":
             st.plotly_chart(missing_heatmap(df), use_container_width=True)
 
     with t_dup:
-        st.markdown("### 👥 Removing Duplicate Entries")
+        render_section_header("Removing Duplicate Entries", "dupe", badge="Step 2 of 7", badge_color="#F59E0B" if _dup_count > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Eliminate redundant or repeated entries to prevent skewing model analysis.</div>", unsafe_allow_html=True)
         
         n_dups = int(df.duplicated().sum())
         if n_dups > 0:
-            st.warning(f"⚠️ Detected **{n_dups} duplicate rows** ({round(n_dups/len(df)*100, 2)}% of dataset).")
+            st.warning(f"Detected **{n_dups} duplicate rows** ({round(n_dups/len(df)*100, 2)}% of dataset).")
             with st.expander("Preview Duplicate Rows"):
-                st.dataframe(df[df.duplicated(keep=False)].head(20), use_container_width=True)
-            if st.button("🗑️ Eliminate All Duplicate Rows", type="primary", key="btn_remove_dups"):
+                render_styled_dataframe(df[df.duplicated(keep=False)].head(20), use_container_width=True)
+            if st.button("Eliminate All Duplicate Rows", type="primary", key="btn_remove_dups"):
                 S["df"], msg = remove_duplicates(S["df"])
                 S["cleaning_log"].append(msg)
                 S["quality"] = full_quality_report(S["df"], S["col_types"])
-                st.toast(msg, icon="👥")
+                st.toast(msg)
                 st.rerun()
         else:
-            st.success("✅ Clean Dataset: Zero duplicate rows found.")
+            st.success("Clean Dataset: Zero duplicate rows found.")
 
     with t_out:
-        st.markdown("### 🎯 Treating Extreme Outliers")
+        render_section_header("Treating Extreme Outliers", "outlier", badge="Step 3 of 7", badge_color="#F59E0B" if _out_count > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Detect and manage extreme anomalies using Interquartile Range (IQR) or Z-score methods.</div>", unsafe_allow_html=True)
 
         num_cols = [c for c, t in S["col_types"].items() if t == "numeric"]
         out_df = q["outliers"]
         if len(out_df) > 0:
-            st.dataframe(out_df, use_container_width=True)
-            if st.button("🎯 Cap All IQR Outliers to Boundaries (1-Click)", type="primary", key="btn_cap_all_outliers"):
+            render_styled_dataframe(out_df, use_container_width=True)
+            if st.button("Cap All IQR Outliers to Boundaries (1-Click)", type="primary", key="btn_cap_all_outliers"):
                 new_df = S["df"].copy()
                 for _, r in out_df.iterrows():
                     c = r["column"]
@@ -1209,7 +1445,7 @@ elif S["step"] == "data_cleaning":
                 S["quality"] = full_quality_report(S["df"], S["col_types"])
                 msg = "Capped extreme outliers across all numeric columns to IQR boundaries."
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🎯")
+                st.toast(msg)
                 st.rerun()
         else:
             st.info("No significant outliers detected.")
@@ -1220,7 +1456,7 @@ elif S["step"] == "data_cleaning":
             out_method = st.radio("Outlier Detection Method:", ["IQR (Interquartile Range)", "Z-Score (|Z| > threshold)"], horizontal=True, key="radio_out_method")
             out_action = st.radio("Action:", ["cap (Clip to boundary values)", "drop (Remove outlier rows)"], horizontal=True, key="radio_out_action")
 
-            if st.button("🎯 Apply Outlier Treatment to Column", key="btn_apply_outlier"):
+            if st.button("Apply Outlier Treatment to Column", key="btn_apply_outlier"):
                 act = "cap" if "cap" in out_action else "drop"
                 if "IQR" in out_method:
                     S["df"], msg = treat_outliers_iqr(S["df"], col_out, action=act)
@@ -1228,20 +1464,20 @@ elif S["step"] == "data_cleaning":
                     S["df"], msg = treat_outliers_zscore(S["df"], col_out, action=act)
                 S["cleaning_log"].append(msg)
                 S["quality"] = full_quality_report(S["df"], S["col_types"])
-                st.toast(msg, icon="🎯")
+                st.toast(msg)
                 st.rerun()
 
     with t_struct:
-        st.markdown("### 🔤 Correcting Structural Errors & Types")
+        render_section_header("Correcting Structural Errors & Types", "struct", badge="Step 4 of 7", badge_color="#F59E0B" if _struct_count > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Iris automatically scans text features for whitespace padding, mixed capitalization, and improper data types.</div>", unsafe_allow_html=True)
 
         struct_issues = detect_structural_errors(S["df"])
         if struct_issues:
-            st.markdown(f"#### 🔍 Detected Structural Issues ({len(struct_issues)} Inconsistencies Found)")
+            st.markdown(f"#### Detected Structural Issues ({len(struct_issues)} Inconsistencies Found)")
             for issue in struct_issues:
                 render_recommendation_card("HIGH", issue["title"], issue["reason"], issue["column"])
             
-            if st.button("⚡ Fix All Structural Errors (1-Click)", type="primary", key="btn_fix_all_struct"):
+            if st.button("Fix All Structural Errors (1-Click)", type="primary", key="btn_fix_all_struct"):
                 new_df = S["df"].copy()
                 fixed_cnt = 0
                 for issue in struct_issues:
@@ -1258,11 +1494,11 @@ elif S["step"] == "data_cleaning":
                 S["quality"] = full_quality_report(S["df"], S["col_types"])
                 msg = f"Fixed {fixed_cnt} structural errors automatically!"
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🔤")
+                st.toast(msg)
                 st.rerun()
             st.markdown("<br>", unsafe_allow_html=True)
         else:
-            st.success("✅ Clean Text Features: Zero structural errors or whitespace padding detected.")
+            st.success("Clean Text Features: Zero structural errors or whitespace padding detected.")
             st.markdown("<br>", unsafe_allow_html=True)
 
         st1, st2 = st.columns(2)
@@ -1277,10 +1513,10 @@ elif S["step"] == "data_cleaning":
                 ("remove_special", "Remove Special Characters & Punctuation"),
             ], format_func=lambda x: x[1], key="select_str_act")
 
-            if st.button("🔤 Clean String Errors", type="primary", key="btn_clean_string"):
+            if st.button("Clean String Errors", type="primary", key="btn_clean_string"):
                 S["df"], msg = clean_structural_errors(S["df"], str_col, str_act[0])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🔤")
+                st.toast(msg)
                 st.rerun()
 
         with st2:
@@ -1288,33 +1524,32 @@ elif S["step"] == "data_cleaning":
             type_col = st.selectbox("Select Column to Re-cast Type:", S["df"].columns.tolist(), key="select_type_col")
             target_type = st.selectbox("Target Data Type:", ["numeric", "categorical", "datetime", "boolean"], key="select_target_type")
 
-            if st.button("🔄 Convert Data Type", type="primary", key="btn_convert_type"):
+            if st.button("Convert Data Type", type="primary", key="btn_convert_type"):
                 S["df"], msg = convert_column_type(S["df"], type_col, target_type)
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🔄")
+                st.toast(msg)
                 st.rerun()
 
 
     with t_enc:
-        st.markdown("### 🔢 Categorical Encoding — Automated Recommendations")
+        render_section_header("Categorical Encoding — Automated Recommendations", "encode", badge="Step 5 of 7", badge_color="#F59E0B" if len(_cat_cols) > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Iris analyzes your categorical columns and recommends the optimal encoding method for each feature.</div>", unsafe_allow_html=True)
 
         cat_suggs = get_encoding_suggestions(S["df"], S["col_types"])
         if cat_suggs:
             st.markdown("""
-            <div style='background:linear-gradient(135deg, rgba(139,92,246,0.15), rgba(6,182,212,0.1));
-                        border:1px solid #8B5CF6; border-radius:14px; padding:18px; margin-bottom:20px;'>
-                <div style='font-size:1.1rem; font-weight:700; color:#8B5CF6;'>⚡ One-Click Automated Encoding</div>
+            <div style='background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); border-radius:14px; padding:18px; margin-bottom:20px;'>
+                <div style='font-size:1.1rem; font-weight:700; color:#8B5CF6;'>One-Click Automated Encoding</div>
                 <div style='color:#9CA3AF; font-size:0.85rem; margin-top:4px;'>Apply all recommended encoding methods across all categorical features instantly.</div>
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("⚡ Auto-Encode All Categorical Features (Recommended)", type="primary", key="btn_auto_encode_all"):
+            if st.button("Auto-Encode All Categorical Features (Recommended)", type="primary", key="btn_auto_encode_all"):
                 S["df"], msg = auto_encode_all_categorical(S["df"], S["col_types"])
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="⚡")
+                st.toast(msg)
                 st.rerun()
 
             st.markdown("<br>**Column-by-Column Automated Recommendations:**", unsafe_allow_html=True)
@@ -1334,31 +1569,30 @@ elif S["step"] == "data_cleaning":
                         S["df"], msg = encode_categorical(S["df"], c_name, m_code)
                         S["col_types"] = infer_all_types(S["df"])
                         S["cleaning_log"].append(msg)
-                        st.toast(msg, icon="🔢")
+                        st.toast(msg)
                         st.rerun()
                 st.markdown("<hr style='border-color:rgba(139,92,246,0.1); margin:8px 0;'>", unsafe_allow_html=True)
         else:
             st.info("No categorical features remaining for encoding.")
 
     with t_scale:
-        st.markdown("### 📏 Feature Scaling — Automated Recommendations")
+        render_section_header("Feature Scaling — Automated Recommendations", "scale", badge="Step 6 of 7", badge_color="#F59E0B" if len(_num_cols_raw) > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Iris analyzes your numeric distributions and recommends Standardization (Z-score) vs. Min-Max scaling per column.</div>", unsafe_allow_html=True)
 
         scale_suggs = get_scaling_suggestions(S["df"], S["col_types"])
         if scale_suggs:
             st.markdown("""
-            <div style='background:linear-gradient(135deg, rgba(6,182,212,0.15), rgba(139,92,246,0.1));
-                        border:1px solid #06B6D4; border-radius:14px; padding:18px; margin-bottom:20px;'>
-                <div style='font-size:1.1rem; font-weight:700; color:#06B6D4;'>⚡ One-Click Automated Scaling</div>
+            <div style='background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:14px; padding:18px; margin-bottom:20px;'>
+                <div style='font-size:1.1rem; font-weight:700; color:#06B6D4;'>One-Click Automated Scaling</div>
                 <div style='color:#9CA3AF; font-size:0.85rem; margin-top:4px;'>Standardize high-variance numeric columns and scale bounded features into uniform ranges.</div>
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("⚡ Auto-Scale All Numeric Features (Recommended)", type="primary", key="btn_auto_scale_all"):
+            if st.button("Auto-Scale All Numeric Features (Recommended)", type="primary", key="btn_auto_scale_all"):
                 S["df"], msg = auto_scale_all_numeric(S["df"], S["col_types"])
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="⚡")
+                st.toast(msg)
                 st.rerun()
 
             st.markdown("<br>**Column-by-Column Automated Recommendations:**", unsafe_allow_html=True)
@@ -1379,7 +1613,7 @@ elif S["step"] == "data_cleaning":
                             S["df"], msg = scale_feature(S["df"], c_name, m_code)
                             S["col_types"] = infer_all_types(S["df"])
                             S["cleaning_log"].append(msg)
-                            st.toast(msg, icon="📏")
+                            st.toast(msg)
                             st.rerun()
                     else:
                         st.caption("✅ Scaled")
@@ -1388,49 +1622,47 @@ elif S["step"] == "data_cleaning":
             st.info("No numeric features remaining for scaling.")
 
     with t_red:
-        st.markdown("### ✂️ Simple Data Reduction")
+        render_section_header("Simple Data Reduction", "reduce", badge="Step 7 of 7", badge_color="#F59E0B" if (_struct_count+_miss_count+_dup_count+_out_count) > 0 else "#10B981")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>One-click actions to drop useless constant columns and remove redundant collinear features.</div>", unsafe_allow_html=True)
 
         r1, r2 = st.columns(2)
         with r1:
             st.markdown("""
             <div class="feature-card" style="padding:20px; text-align:center;">
-                <div style="font-size:2rem; margin-bottom:6px;">🚫</div>
                 <div style="font-weight:700; color:#8B5CF6; margin-bottom:4px;">Constant Columns</div>
                 <div style="color:#9CA3AF; font-size:0.82rem; margin-bottom:14px;">Drop features with 0 variance (only 1 unique value).</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚫 Drop Constant Columns (1-Click)", use_container_width=True, key="btn_drop_const"):
+            if st.button("Drop Constant Columns (1-Click)", use_container_width=True, key="btn_drop_const"):
                 S["df"], msg = drop_constant_features(S["df"])
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🚫")
+                st.toast(msg)
                 st.rerun()
 
         with r2:
             st.markdown("""
             <div class="feature-card" style="padding:20px; text-align:center;">
-                <div style="font-size:2rem; margin-bottom:6px;">⚡</div>
                 <div style="font-weight:700; color:#06B6D4; margin-bottom:4px;">Redundant Collinear Features</div>
                 <div style="color:#9CA3AF; font-size:0.82rem; margin-bottom:14px;">Drop feature pairs with correlation |r| > 0.90.</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("⚡ Drop Redundant Collinear Features (1-Click)", use_container_width=True, key="btn_drop_high_corr"):
+            if st.button("Drop Redundant Collinear Features (1-Click)", use_container_width=True, key="btn_drop_high_corr"):
                 S["df"], msg = drop_high_correlation_features(S["df"], 0.90)
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="⚡")
+                st.toast(msg)
                 st.rerun()
 
         st.markdown("<br>**Manual Quick Drop:**", unsafe_allow_html=True)
         cols_to_drop = st.multiselect("Select columns to remove:", S["df"].columns.tolist(), key="select_manual_drop")
-        if st.button("🗑️ Drop Selected Columns", type="primary", key="btn_manual_drop"):
+        if st.button("Drop Selected Columns", type="primary", key="btn_manual_drop"):
             if cols_to_drop:
                 S["df"] = S["df"].drop(columns=cols_to_drop)
                 S["col_types"] = infer_all_types(S["df"])
                 msg = f"Manually dropped {len(cols_to_drop)} columns: {', '.join(cols_to_drop)}"
                 S["cleaning_log"].append(msg)
-                st.toast(msg, icon="🗑️")
+                st.toast(msg)
                 st.rerun()
 
     if S["cleaning_log"]:
@@ -1459,6 +1691,9 @@ elif S["step"] == "data_cleaning":
 elif S["step"] == "eda":
     render_stage_header(3, "Exploratory Data Analysis (EDA) Narrative Studio", "Iris converts complex feature distributions into plain-English data stories, interactive charts, and executive insights.")
 
+    if st.button("Next: Feature Engineering Studio →", type="primary", key="btn_eda_next_top", use_container_width=True):
+        next_step("eda")
+
     df = S["df"]
     col_types = S["col_types"]
 
@@ -1472,9 +1707,9 @@ elif S["step"] == "eda":
     findings = generate_eda_key_findings(df, col_types)
     if findings:
         st.markdown("""
-        <div class="glass-card" style="border-left: 4px solid #06B6D4;">
-            <div style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; margin-bottom: 10px;">📊 Iris EDA Narrative Key Findings</div>
-            <ul style="color: #CBD5E1; margin: 0; padding-left: 20px; line-height: 1.7;">
+        <div class="glass-card" style="border-left: 4px solid #0891B2;">
+            <div style="font-weight: 800; font-size: 1.1rem; color: #0F172A; margin-bottom: 10px;">Iris EDA Narrative Key Findings</div>
+            <ul style="color: #334155; margin: 0; padding-left: 20px; line-height: 1.8; font-size:0.92rem;">
         """ + "".join([f"<li>{f}</li>" for f in findings]) + """
             </ul>
         </div>
@@ -1486,7 +1721,7 @@ elif S["step"] == "eda":
     try:
         eda_html_str = build_eda_standalone_dashboard(df, col_types, S["col_stats"], S["corr"], eda_recs)
         st.download_button(
-            "🌐 Export Standalone EDA Charts Dashboard (HTML)",
+            "Export Standalone EDA Charts Dashboard (HTML)",
             data=eda_html_str,
             file_name="iris_eda_charts_dashboard.html",
             mime="text/html",
@@ -1499,50 +1734,66 @@ elif S["step"] == "eda":
 
     st.markdown("<br>", unsafe_allow_html=True)
     tab_auto_charts, tab_col_explorer, tab_corr_matrix = st.tabs([
-        "📊 1. Automated Recommended Charts",
-        "🔎 2. Feature Deep-Dive Explorer",
-        "🔗 3. Correlation & Bivariate Matrix"
+        "1. Automated Recommended Charts",
+        "2. Feature Deep-Dive Explorer",
+        "3. Correlation & Bivariate Matrix"
     ])
 
     with tab_auto_charts:
-        st.markdown(f"### 💡 {len(eda_recs)} Automated Chart Recommendations for your Dataset")
+        render_section_header(f"{len(eda_recs)} Automated Chart Recommendations for your Dataset", "bulb", badge="Auto-Generated", badge_color="#8B5CF6")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:20px;'>Below are high-value visualizations chosen by Iris based on feature distributions, statistical properties, and correlation strength.</div>", unsafe_allow_html=True)
-
+        
+        # Group charts by category
+        from collections import defaultdict
+        grouped_recs = defaultdict(list)
         for rec in eda_recs:
-            st.markdown(f"""
-            <div style="background:#151528; border:1px solid rgba(139,92,246,0.25); border-radius:16px; padding:20px; margin-bottom:24px;">
-                <div style="display:flex; gap:8px; margin-bottom:8px;">
-                    <span class="type-badge" style="background:rgba(139,92,246,0.15); color:#8B5CF6; border:1px solid rgba(139,92,246,0.35);">{rec['category']}</span>
-                    <span class="type-badge" style="background:rgba(6,182,212,0.15); color:#06B6D4; border:1px solid rgba(6,182,212,0.35);">{rec['chart_type']}</span>
-                </div>
-                <div style="font-size:1.25rem; font-weight:800; color:#F3F4F6; margin-bottom:6px;">{rec['title']}</div>
-                <div style="color:#9CA3AF; font-size:0.83rem;">Target Features: <strong>{', '.join(rec['columns'])}</strong></div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.plotly_chart(rec["fig"], use_container_width=True)
-
-            st.markdown(f"""
-            <div class="why-card">
-                <strong>❓ Why are we making this chart?</strong><br>
-                {rec['why']}
-            </div>
-            <br><hr style="border-color:rgba(139,92,246,0.15); margin:24px 0;">
-            """, unsafe_allow_html=True)
+            grouped_recs[rec['category']].append(rec)
+            
+        for category, recs in grouped_recs.items():
+            st.markdown(f"#### {category}")
+            st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin:8px 0 24px;'>", unsafe_allow_html=True)
+            
+            # Display charts in a 2-column grid to look more like a dashboard
+            for i in range(0, len(recs), 2):
+                cols = st.columns(2)
+                for j in range(2):
+                    if i + j < len(recs):
+                        rec = recs[i+j]
+                        with cols[j]:
+                            st.markdown(f"""
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-top:3px solid #7C3AED; border-radius:14px; padding:18px; margin-bottom:12px; box-shadow:0 4px 14px rgba(0,0,0,0.03);">
+                                <div style="display:flex; gap:6px; margin-bottom:8px;">
+                                    <span class="type-badge" style="background:#F3E8FF; color:#6D28D9; border:1px solid #DDD6FE; font-size:0.7rem; padding:3px 10px; font-weight:700;">{rec['chart_type']}</span>
+                                </div>
+                                <div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-bottom:4px; line-height:1.2;">{rec['title']}</div>
+                                <div style="color:#475569; font-size:0.78rem;">Target Features: <strong style="color:#0F172A;">{', '.join(rec['columns'])}</strong></div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.plotly_chart(rec["fig"], use_container_width=True)
+                            
+                            st.markdown(f"""
+                            <div class="why-card" style="font-size:0.84rem; padding:14px 18px; margin-bottom:32px; background:#F8FAFC; border:1px solid #E2E8F0; border-left:3px solid #0891B2; border-radius:0 10px 10px 0; color:#334155;">
+                                <strong style="color:#0F172A;">Why are we making this chart?</strong><br>
+                                {rec['why']}
+                            </div>
+                            """, unsafe_allow_html=True)
 
     with tab_col_explorer:
         all_cols = df.columns.tolist()
-        selected_col = st.selectbox("Select feature for deep-dive exploration:", all_cols, key="select_eda_col")
+        sel_default = S.get("selected_eda_col", all_cols[0] if all_cols else "")
+        sel_idx = all_cols.index(sel_default) if sel_default in all_cols else 0
+        selected_col = st.selectbox("Select feature for deep-dive exploration:", all_cols, index=sel_idx, key="select_eda_col")
         ctype = col_types.get(selected_col, "unknown")
         stats = S["col_stats"].get(selected_col, {})
 
-        st.markdown(f"### {selected_col} (`{ctype}`)")
+        st.markdown(f"<div class='h-section' style='margin-bottom:12px;'>{selected_col} <span style='color:#94A3B8; font-weight:400; font-size:0.9rem;'>({ctype})</span></div>", unsafe_allow_html=True)
 
         chip_keys = ["count", "missing", "unique", "mean", "median", "std", "min", "max", "skewness"]
         chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;'>"
         for k in chip_keys:
             if k in stats and stats[k] is not None:
-                chips_html += f'<div style="background:#151528; border:1px solid rgba(139,92,246,0.25); border-radius:10px; padding:6px 14px; font-size:0.8rem;"><span style="color:#9CA3AF;">{k.title()}:</span> <strong style="color:#06B6D4;">{stats[k]}</strong></div>'
+                chips_html += f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:6px 14px; font-size:0.82rem; box-shadow:0 1px 4px rgba(0,0,0,0.02);"><span style="color:#64748B; font-weight:600;">{k.title()}:</span> <strong style="color:#7C3AED;">{stats[k]}</strong></div>'
         chips_html += "</div>"
         st.markdown(chips_html, unsafe_allow_html=True)
 
@@ -1551,18 +1802,18 @@ elif S["step"] == "eda":
             s = pd.to_numeric(col_s, errors="coerce").dropna()
             plot_df = pd.DataFrame({selected_col: s})
 
-            t1, t2, t3, t4 = st.tabs(["📊 Distribution Histogram", "🎻 Violin Plot", "📦 Box Plot", "🎯 Outlier Strip"])
+            t1, t2, t3, t4 = st.tabs(["Distribution Histogram", "Violin Plot", "Box Plot", "Outlier Strip"])
             with t1:
-                fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#8B5CF6"], marginal="rug")
-                fig.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"))
+                fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#7C3AED"], marginal="rug")
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t2:
-                fig = px.violin(plot_df, y=selected_col, box=True, points="outliers", color_discrete_sequence=["#06B6D4"])
-                fig.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"))
+                fig = px.violin(plot_df, y=selected_col, box=True, points="outliers", color_discrete_sequence=["#0891B2"])
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t3:
-                fig = px.box(plot_df, y=selected_col, points="all", color_discrete_sequence=["#EC4899"])
-                fig.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"))
+                fig = px.box(plot_df, y=selected_col, points="all", color_discrete_sequence=["#DB2777"])
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t4:
                 q1v, q3v = s.quantile(0.25), s.quantile(0.75)
@@ -1570,22 +1821,22 @@ elif S["step"] == "eda":
                 lo, hi = q1v - 1.5*iqrv, q3v + 1.5*iqrv
                 color = s.apply(lambda v: "Outlier" if v < lo or v > hi else "Normal")
                 tmp = pd.DataFrame({"value": s, "type": color})
-                fig = px.strip(tmp, y="value", color="type", color_discrete_map={"Normal":"#8B5CF6", "Outlier":"#EC4899"})
-                fig.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"))
+                fig = px.strip(tmp, y="value", color="type", color_discrete_map={"Normal":"#7C3AED", "Outlier":"#DB2777"})
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
 
         elif ctype in ("categorical", "boolean"):
             col_s = df[selected_col].iloc[:, 0] if isinstance(df[selected_col], pd.DataFrame) else df[selected_col]
             vc = col_s.value_counts().head(20).reset_index()
             vc.columns = ["Category", "Count"]
-            t1, t2 = st.tabs(["📊 Bar Chart", "🥧 Pie Chart"])
+            t1, t2 = st.tabs(["Bar Chart", "Pie Chart"])
             with t1:
-                fig = px.bar(vc, x="Count", y="Category", orientation="h", color="Count", color_continuous_scale=["#151528", "#06B6D4"])
-                fig.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"), yaxis=dict(title=selected_col))
+                fig = px.bar(vc, x="Count", y="Category", orientation="h", color="Count", color_continuous_scale=["#E2E8F0", "#0891B2"])
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), yaxis=dict(title=selected_col))
                 st.plotly_chart(fig, use_container_width=True)
             with t2:
-                fig = px.pie(vc, names="Category", values="Count", hole=0.35, color_discrete_sequence=["#8B5CF6","#06B6D4","#EC4899","#10B981"])
-                fig.update_layout(paper_bgcolor="#151528", font=dict(color="#F3F4F6"))
+                fig = px.pie(vc, names="Category", values="Count", hole=0.35, color_discrete_sequence=["#7C3AED","#0891B2","#DB2777","#059669"])
+                fig.update_layout(paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
 
         iris_says_block(f"col_{selected_col}", explain_column, selected_col, stats)
@@ -1596,7 +1847,7 @@ elif S["step"] == "eda":
             st.plotly_chart(correlation_heatmap(corr_res["pearson"]), use_container_width=True)
             if corr_res.get("top_pairs"):
                 st.markdown("**Top Correlated Pairs:**")
-                st.dataframe(pd.DataFrame(corr_res["top_pairs"]), use_container_width=True)
+                render_styled_dataframe(pd.DataFrame(corr_res["top_pairs"]), use_container_width=True)
         else:
             st.info("Need at least 2 numeric features for correlation matrix.")
 
@@ -1611,15 +1862,18 @@ elif S["step"] == "eda":
 elif S["step"] == "feature_engineering":
     render_stage_header(4, "Feature Engineering & Transformation Lab", "Transparent transformation lab: preview planned transformations, engineer interaction features, and check feature importance.")
 
+    if st.button("Next: Communication & Executive Export →", type="primary", key="btn_fe_next_top", use_container_width=True):
+        next_step("feature_engineering")
+
     df = S["df"]
     col_types = S["col_types"]
 
     fe_plan = generate_fe_plan(df, col_types)
 
     st.markdown(f"""
-    <div class="glass-card" style="border-left: 4px solid #EC4899; margin-bottom: 20px;">
-        <div style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; margin-bottom: 6px;">⚙️ Iris Feature Engineering Strategy Plan</div>
-        <div style="color: #CBD5E1; font-size: 0.9rem;">
+    <div class="glass-card" style="border-left:3px solid #EC4899; margin-bottom:20px; padding:18px 24px;">
+        <div style="font-weight:800; font-size:1.1rem; color:#4C1D95; margin-bottom:6px;">Iris Feature Engineering Strategy Plan</div>
+        <div style="color:#334155; font-size:0.9rem;">
             <b>{fe_plan['total_planned_actions']}</b> planned actions will create approximately
             <b>+{fe_plan['estimated_new_columns']}</b> new columns from the existing features.
         </div>
@@ -1630,25 +1884,25 @@ elif S["step"] == "feature_engineering":
     if fe_plan["items"]:
         fe_preview_rows = "".join([
             f"""<tr>
-                <td style='padding:9px 14px; color:#E5E7EB; font-weight:600;'>{it['col']}</td>
+                <td style='padding:9px 14px; color:#1E293B; font-weight:700; border-bottom:1px solid #EDE9FE;'>{it['col']}</td>
                 <td style='padding:9px 14px;'>
-                    <span style='background:#8B5CF622; color:#A78BFA; border:1px solid #8B5CF655;
-                                 border-radius:12px; padding:3px 10px; font-size:0.8rem; font-weight:700;'>
+                    <span style='display:inline-block; background:#F3E8FF; color:#5B21B6; border:1px solid #DDD6FE;
+                                 border-radius:6px; padding:3px 10px; font-size:0.8rem; font-weight:800;'>
                         {it['type']}
                     </span>
                 </td>
-                <td style='padding:9px 14px; color:#06B6D4; font-weight:700; text-align:center;'>+{it['est_cols']}</td>
+                <td style='padding:9px 14px; color:#0E7490; font-weight:800; text-align:center; border-bottom:1px solid #EDE9FE;'>+{it['est_cols']}</td>
             </tr>"""
             for it in fe_plan["items"]
         ])
         st.markdown(f"""
-        <div style='margin-bottom:24px; border:1px solid rgba(139,92,246,0.2); border-radius:16px; overflow:hidden;'>
+        <div style='margin-bottom:24px; border:1px solid #DDD6FE; border-radius:8px; overflow:hidden; box-shadow:0 4px 14px rgba(76,29,149,0.06);'>
             <table style='width:100%; border-collapse:collapse; font-size:0.88rem;'>
                 <thead>
-                    <tr style='background:rgba(139,92,246,0.15);'>
-                        <th style='padding:10px 14px; color:#8B5CF6; text-align:left; font-weight:700;'>Column</th>
-                        <th style='padding:10px 14px; color:#8B5CF6; text-align:left; font-weight:700;'>Planned Transformation</th>
-                        <th style='padding:10px 14px; color:#8B5CF6; text-align:center; font-weight:700;'>New Cols</th>
+                    <tr style='background:#6D28D9;'>
+                        <th style='padding:10px 14px; color:#FFFFFF; text-align:left; font-weight:800;'>Column</th>
+                        <th style='padding:10px 14px; color:#FFFFFF; text-align:left; font-weight:800;'>Planned Transformation</th>
+                        <th style='padding:10px 14px; color:#FFFFFF; text-align:center; font-weight:800;'>New Cols</th>
                     </tr>
                 </thead>
                 <tbody>{fe_preview_rows}</tbody>
@@ -1656,17 +1910,17 @@ elif S["step"] == "feature_engineering":
         </div>
         """, unsafe_allow_html=True)
 
-    if st.button("⚡ Apply All Planned Feature Transformations (1-Click)", type="primary", key="btn_auto_fe_all", use_container_width=True):
+    if st.button("Apply All Planned Feature Transformations (1-Click)", type="primary", key="btn_auto_fe_all", use_container_width=True):
         new_df, explanations, summary_msg = auto_engineer_all_features(df, col_types)
         S["df"] = new_df
         S["col_types"] = infer_all_types(new_df)
         S["fe_explanations"] = explanations
         S["transformation_log"].append(summary_msg)
-        st.toast(summary_msg, icon="⚡")
+        st.toast(summary_msg)
         st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("➕ Interaction Feature Builder", expanded=False):
+    with st.expander("Interaction Feature Builder", expanded=False):
         num_cols = [c for c, t in col_types.items() if t == "numeric"]
         if len(num_cols) >= 2:
             i_col1, i_col2, i_op, i_btn = st.columns([2, 2, 2, 2])
@@ -1682,7 +1936,7 @@ elif S["step"] == "feature_engineering":
                     op_code = "product" if "product" in op else "ratio"
                     S["df"], msg = create_interaction_features(S["df"], c1, c2, op_code)
                     S["col_types"] = infer_all_types(S["df"])
-                    st.toast(msg, icon="➕")
+                    st.toast(msg)
                     st.rerun()
         else:
             st.info("Need at least 2 numeric features for interaction builder.")
@@ -1691,16 +1945,16 @@ elif S["step"] == "feature_engineering":
         fi_dict = quick_feature_importance(df, S["target_col"])
         if fi_dict:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(f"### 🎯 Feature Importance Preview (Target: '{S['target_col']}')")
+            render_section_header(f"Feature Importance Preview (Target: '{S['target_col']}')", "importance", badge="Insight", badge_color="#EC4899")
             fi_df = pd.DataFrame(list(fi_dict.items()), columns=["Feature", "Importance Score"])
             fig = px.bar(fi_df, x="Importance Score", y="Feature", orientation="h", color="Importance Score", color_continuous_scale="Purples")
-            fig.update_layout(plot_bgcolor="#0A0A14", paper_bgcolor="#0A0A14", font=dict(color="#F1F5F9"))
+            fig.update_layout(plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", font=dict(color="#1E293B"), colorway=["#6D28D9", "#0891B2", "#DB2777", "#059669"])
             st.plotly_chart(fig, use_container_width=True)
 
 
     # Explanations Section
     if S["fe_explanations"]:
-        st.markdown(f"### 💡 Iris Feature Engineering Log ({len(S['fe_explanations'])} features created)")
+        render_section_header(f"Iris Feature Engineering Log ({len(S['fe_explanations'])} features created)", "log", badge="Auto-Generated", badge_color="#8B5CF6")
         st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:20px;'>Below is the plain-English explanation for every feature engineered by Iris:</div>", unsafe_allow_html=True)
 
         for exp in S["fe_explanations"]:
@@ -1712,53 +1966,56 @@ elif S["step"] == "feature_engineering":
             why_text = exp["why"]
 
             st.markdown(f"""
-            <div style="background:#151528; border:1px solid rgba(139,92,246,0.25); border-radius:16px; padding:20px; margin-bottom:20px;">
+            <div style="background:#FFFFFF; border:1px solid #DDD6FE; border-left:4px solid #7C3AED; border-radius:8px; padding:20px; margin-bottom:20px; box-shadow:0 4px 14px rgba(76,29,149,0.06);">
                 <div style="display:flex; justify-space-between; align-items:center; margin-bottom:8px;">
                     <div>
                         <span class="type-badge" style="background:{b_color}22; color:{b_color}; border:1px solid {b_color}55;">{badge}</span>
-                        <span style="font-size:1.1rem; font-weight:800; color:#F3F4F6; margin-left:8px;">{c_orig} &nbsp;→&nbsp; <span style="color:#06B6D4;">{f_new}</span></span>
+                        <span style="font-size:1.1rem; font-weight:800; color:#1E293B; margin-left:8px;">{c_orig} &nbsp;→&nbsp; <span style="color:#7C3AED;">{f_new}</span></span>
                     </div>
                 </div>
-                <div style="color:#9CA3AF; font-size:0.83rem; margin-bottom:12px;">Method: <strong>{trans}</strong></div>
+                <div style="color:#64748B; font-size:0.83rem; margin-bottom:12px;">Method: <strong style="color:#334155;">{trans}</strong></div>
                 <div class="why-card" style="margin-top:0;">
-                    <strong>❓ Why did Iris create this feature?</strong><br>
+                    <strong>Why did Iris create this feature?</strong><br>
                     {why_text}
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
     # Optional Advanced Custom Feature Studio
-    with st.expander("🛠️ Advanced Custom Feature Transformation Studio (Optional)", expanded=False):
+    with st.expander("Advanced Custom Feature Transformation Studio (Optional)", expanded=False):
         fe_col1, fe_col2 = st.columns([1, 1])
         with fe_col1:
             selected_feature = st.selectbox("Select Column to Transform:", df.columns.tolist(), key="fe_col_select")
             trans_options = [
-                ("log", "⚡ Log Transform (log1p) — Fix Skewness"),
-                ("standard_scale", "📏 Standard Scaling (Z-Score: mean=0, std=1)"),
-                ("minmax_scale", "📐 Min-Max Scaling ([0, 1] range)"),
-                ("bin_quantiles", "📦 4-Quantile Binning (Low/Med/High)"),
-                ("binary_encode", "🔢 Binary Encoding (0/1)"),
-                ("one_hot", "🔥 One-Hot Encoding (Dummy columns)"),
-                ("freq_encode", "🗂️ Frequency Encoding"),
-                ("datetime_decompose", "📅 Datetime Decomposition"),
-                ("drop", "🗑️ Drop Column"),
+                ("log", "Log Transform (log1p) — Fix Skewness"),
+                ("standard_scale", "Standard Scaling (Z-Score: mean=0, std=1)"),
+                ("minmax_scale", "Min-Max Scaling ([0, 1] range)"),
+                ("bin_quantiles", "4-Quantile Binning (Low/Med/High)"),
+                ("binary_encode", "Binary Encoding (0/1)"),
+                ("one_hot", "One-Hot Encoding (Dummy columns)"),
+                ("freq_encode", "Frequency Encoding"),
+                ("datetime_decompose", "Datetime Decomposition"),
+                ("drop", "Drop Column"),
             ]
             trans_type = st.selectbox("Select Transformation:", [t[0] for t in trans_options], format_func=lambda x: [t[1] for t in trans_options if t[0]==x][0])
 
-            if st.button("✨ Apply Custom Transformation", key="btn_apply_custom_fe", use_container_width=True):
+            if st.button("Apply Custom Transformation", key="btn_apply_custom_fe", use_container_width=True):
                 new_df, status_msg = apply_transformation(df, selected_feature, trans_type)
                 S["df"] = new_df
                 S["col_types"] = infer_all_types(new_df)
                 S["transformation_log"].append(status_msg)
-                st.toast(status_msg, icon="✨")
+                st.toast(status_msg)
                 st.rerun()
 
         with fe_col2:
             st.markdown("**Distribution Visualizer**")
             s_raw = df[selected_feature]
+            if isinstance(s_raw, pd.DataFrame):
+                s_raw = s_raw.iloc[:, 0]
             if pd.api.types.is_numeric_dtype(s_raw):
-                fig_prev = px.histogram(df, x=selected_feature, title=f"Feature: '{selected_feature}'", color_discrete_sequence=["#8B5CF6"])
-                fig_prev.update_layout(plot_bgcolor="#0F0F20", paper_bgcolor="#151528", font=dict(color="#F3F4F6"), height=240)
+                plot_df = pd.DataFrame({selected_feature: s_raw})
+                fig_prev = px.histogram(plot_df, x=selected_feature, title=f"Feature: '{selected_feature}'", color_discrete_sequence=["#8B5CF6"])
+                fig_prev.update_layout(plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", font=dict(color="#1E293B"), height=300, margin=dict(l=32, r=20, t=48, b=36))
                 st.plotly_chart(fig_prev, use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1776,7 +2033,7 @@ elif S["step"] == "communication":
     health = compute_data_health_score(df)
     
     # Project Summary Dashboard KPI Grid
-    st.markdown("### 📊 Project Pipeline Summary")
+    render_section_header("Project Pipeline Summary", "summary")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         render_kpi_card("Total Rows", f"{len(df):,}", "Final Dataset Size", "#7C3AED")
@@ -1790,7 +2047,7 @@ elif S["step"] == "communication":
         render_kpi_card("Target Feature", str(S.get("target_col", "None")), "Primary Metric", "#EC4899")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("### 📊 Dataset Preview (Cleaned & Engineered)")
+    render_section_header("Dataset Preview (Cleaned & Engineered)", "table")
     render_data_preview_table(df, key_prefix="stage5")
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1808,15 +2065,15 @@ elif S["step"] == "communication":
     }
     
     exec_summary_text = generate_executive_summary(pipeline_stats)
-    with st.expander("📄 AI Executive Narrative Briefing", expanded=True):
+    with st.expander("AI Executive Narrative Briefing", expanded=True):
         st.markdown(exec_summary_text)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── ML Model Recommendation Engine ──────────────────────────────────────────
-    st.markdown("### 🤖 ML Model Recommendation Engine")
+    render_section_header("ML Model Recommendation Engine", "ml", badge="Advisory", badge_color="#3B82F6")
     st.markdown(
-        "<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:20px;'>"
+        "<div style='color:#475569; font-size:0.88rem; margin-bottom:20px;'>"
         "Based on your dataset's statistical properties and target column selection, "
         "Iris recommends the following Machine Learning models for future analysis. "
         "No training is performed — this is a strategic advisory for your next steps."
@@ -1848,10 +2105,9 @@ elif S["step"] == "communication":
     st.markdown(f"""
     <div style="background:{t_bg}; border:1px solid {t_color}44; border-left:4px solid {t_color};
                 border-radius:14px; padding:16px 22px; margin-bottom:24px; display:flex; align-items:center; gap:12px;">
-        <span style="font-size:1.6rem;">{'📊' if 'Regression' in task_label else ('🔬' if 'Classification' in task_label else '🔍')}</span>
         <div>
             <div style="font-size:0.75rem; color:{t_color}; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;">Detected Task Type</div>
-            <div style="font-size:1.05rem; font-weight:700; color:#F3F4F6; margin-top:2px;">{task_label}{target_badge}</div>
+            <div style="font-size:1.05rem; font-weight:800; color:#1E293B; margin-top:2px;">{task_label}{target_badge}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1863,7 +2119,7 @@ elif S["step"] == "communication":
             border = "#F59E0B" if "Warning" in notice or "Imbalance" in notice else "#10B981"
             st.markdown(f"""
             <div style="background:{bg}; border:1px solid {border}33; border-left:3px solid {border};
-                        border-radius:10px; padding:11px 18px; margin-bottom:10px; font-size:0.88rem; color:#E5E7EB;">
+                        border-radius:10px; padding:11px 18px; margin-bottom:10px; font-size:0.88rem; color:#334155; line-height:1.55;">
                 {notice}
             </div>""", unsafe_allow_html=True)
 
@@ -1890,28 +2146,28 @@ elif S["step"] == "communication":
             "#F59E0B" if model["interpretability"].startswith("Medium") else "#9CA3AF"
         )
         st.markdown(f"""
-        <div style="background:#151528; border:1px solid rgba(139,92,246,0.2); border-radius:18px;
-                    padding:22px 26px; margin-bottom:18px; transition:transform 0.2s;">
+        <div style="background:#FFFFFF; border:1px solid #DDD6FE; border-left:4px solid {m_color}; border-radius:8px;
+                padding:22px 26px; margin-bottom:14px; box-shadow:0 4px 14px rgba(76,29,149,0.06);">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
                 <div>
                     <span style="background:{m_bg}; color:{m_color}; border:1px solid {m_color}55;
                                  border-radius:20px; padding:4px 12px; font-size:0.75rem; font-weight:800;
                                  letter-spacing:0.04em;">{suit_label}</span>
-                    <h3 style="color:#F3F4F6; font-size:1.1rem; font-weight:800; margin:8px 0 2px;">{'⚡' if 'Primary' in suit_label else ('✅' if 'Baseline' in suit_label else '🔷')} {model['name']}</h3>
-                    <span style="color:#9CA3AF; font-size:0.8rem; font-weight:600;">{model['category']}</span>
+                    <h3 style="color:#1E293B; font-size:1.1rem; font-weight:800; margin:8px 0 2px;">{'⚡' if 'Primary' in suit_label else ('✅' if 'Baseline' in suit_label else '🔷')} {model['name']}</h3>
+                    <span style="color:#64748B; font-size:0.8rem; font-weight:600;">{model['category']}</span>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:0.72rem; color:#6B7280; text-transform:uppercase; letter-spacing:0.07em;">Interpretability</div>
+                    <div style="font-size:0.72rem; color:#64748B; text-transform:uppercase; letter-spacing:0.07em;">Interpretability</div>
                     <div style="color:{interp_color}; font-weight:700; font-size:0.9rem;">{model['interpretability']}</div>
-                    <div style="font-size:0.72rem; color:#6B7280; margin-top:4px;">Complexity: {model['complexity']}</div>
+                    <div style="font-size:0.72rem; color:#64748B; margin-top:4px;">Complexity: {model['complexity']}</div>
                 </div>
             </div>
-            <div style="background:rgba(139,92,246,0.06); border-left:3px solid {m_color}88;
-                        border-radius:8px; padding:12px 16px; margin-bottom:10px; color:#CBD5E1; font-size:0.87rem; line-height:1.6;">
-                <strong style='color:#E5E7EB;'>Why this model?</strong><br>{model['why']}
+                <div style="background:#F7F3FF; border:1px solid #E9DFFF; border-left:3px solid {m_color};
+                    border-radius:6px; padding:12px 16px; margin-bottom:10px; color:#334155; font-size:0.87rem; line-height:1.6;">
+                <strong style='color:#4C1D95;'>Why this model?</strong><br>{model['why']}
             </div>
-            <div style="color:#9CA3AF; font-size:0.82rem;">
-                Best for: <em style='color:#D1D5DB;'>{model['best_for']}</em>
+            <div style="color:#64748B; font-size:0.82rem;">
+                Best for: <em style='color:#334155;'>{model['best_for']}</em>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1919,28 +2175,28 @@ elif S["step"] == "communication":
     # Evaluation Metrics
     if ml_recs["eval_metrics"]:
         metrics_html = "".join([
-            f"<span style='background:rgba(139,92,246,0.12); color:#A78BFA; border:1px solid rgba(139,92,246,0.3);"
-            f" border-radius:20px; padding:5px 14px; font-size:0.82rem; font-weight:600; margin:4px; display:inline-block;'>{m}</span>"
+            f"<span style='background:#F3E8FF; color:#5B21B6; border:1px solid #DDD6FE;"
+            f" border-radius:6px; padding:5px 12px; font-size:0.82rem; font-weight:700; margin:4px; display:inline-block;'>{m}</span>"
             for m in ml_recs["eval_metrics"]
         ])
         st.markdown(f"""
         <div style="margin-top:8px; margin-bottom:32px;">
-            <div style="font-size:0.8rem; font-weight:700; color:#9CA3AF; text-transform:uppercase;
+            <div style="font-size:0.8rem; font-weight:700; color:#475569; text-transform:uppercase;
                         letter-spacing:0.08em; margin-bottom:10px;">Recommended Evaluation Metrics</div>
             {metrics_html}
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("### 📦 Export Reports & Datasets")
+    render_section_header("Export Reports & Datasets", "export")
 
     d1, d2, d3 = st.columns(3)
 
     with d1:
         st.markdown("""
         <div class="feature-card" style="text-align:center; padding:24px 16px;">
-            <div style="font-size:1.1rem; font-weight:700; color:#8B5CF6; margin-bottom:6px;">Interactive HTML Dashboard</div>
-            <div style="color:#9CA3AF; font-size:0.82rem; margin-bottom:16px;">
+            <div style="font-size:1.1rem; font-weight:800; color:#5B21B6; margin-bottom:6px;">Interactive HTML Dashboard</div>
+            <div style="color:#475569; font-size:0.82rem; margin-bottom:16px;">
                 Single-file responsive web app with embedded Plotly charts, data quality audit, correlations & feature engineering guide.
             </div>
         </div>
@@ -1959,8 +2215,8 @@ elif S["step"] == "communication":
     with d2:
         st.markdown("""
         <div class="feature-card" style="text-align:center; padding:24px 16px;">
-            <div style="font-size:1.1rem; font-weight:700; color:#06B6D4; margin-bottom:6px;">Dark Executive PDF Report</div>
-            <div style="color:#9CA3AF; font-size:0.82rem; margin-bottom:16px;">
+            <div style="font-size:1.1rem; font-weight:800; color:#0E7490; margin-bottom:6px;">Dark Executive PDF Report</div>
+            <div style="color:#475569; font-size:0.82rem; margin-bottom:16px;">
                 High-contrast printable PDF report with executive cover page, KPI metrics breakdown & AI narrative explanations.
             </div>
         </div>
@@ -1979,8 +2235,8 @@ elif S["step"] == "communication":
     with d3:
         st.markdown("""
         <div class="feature-card" style="text-align:center; padding:24px 16px;">
-            <div style="font-size:1.1rem; font-weight:700; color:#EC4899; margin-bottom:6px;">Cleaned & Engineered CSV</div>
-            <div style="color:#9CA3AF; font-size:0.82rem; margin-bottom:16px;">
+            <div style="font-size:1.1rem; font-weight:800; color:#BE185D; margin-bottom:6px;">Cleaned & Engineered CSV</div>
+            <div style="color:#475569; font-size:0.82rem; margin-bottom:16px;">
                 Preprocessed dataset with imputed missing values, capped outliers, and newly engineered feature columns.
             </div>
         </div>
@@ -1996,11 +2252,11 @@ elif S["step"] == "communication":
     st.markdown("---")
 
     # Ask Iris Chat
-    st.markdown("### 💬 Ask Iris AI Anything")
-    st.markdown("<div style='color:#9CA3AF; font-size:0.88rem; margin-bottom:16px;'>Ask questions about your data analysis, business findings, or feature engineering strategy.</div>", unsafe_allow_html=True)
+    render_section_header("Ask Iris AI Anything", "chat")
+    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>Ask questions about your data analysis, business findings, or feature engineering strategy.</div>", unsafe_allow_html=True)
 
     for msg in S["chat_history"]:
-        role_icon = "🌸" if msg["role"] == "iris" else "👤"
+        role_label = "<strong style='color:#5B21B6;'>Iris</strong>" if msg["role"] == "iris" else "<strong style='color:#0E7490;'>You</strong>"
         align = "left" if msg["role"] == "iris" else "right"
         bg = "rgba(139,92,246,0.12)" if msg["role"] == "iris" else "rgba(6,182,212,0.12)"
         border = "#8B5CF6" if msg["role"] == "iris" else "#06B6D4"
@@ -2008,8 +2264,9 @@ elif S["step"] == "communication":
         <div style="text-align:{align}; margin:8px 0;">
             <div style="display:inline-block; background:{bg}; border:1px solid {border};
                         border-radius:12px; padding:12px 16px; max-width:75%;
-                        text-align:left; color:#E2E8F0; font-size:0.9rem; line-height:1.6;">
-                {role_icon} {msg['text']}
+                        text-align:left; color:#1E293B; font-size:0.9rem; line-height:1.6;">
+                <div style="font-size:0.75rem; text-transform:uppercase; margin-bottom:4px; opacity:0.8;">{role_label}</div>
+                {msg['text']}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -2019,7 +2276,7 @@ elif S["step"] == "communication":
         with q_col:
             user_q = st.text_input("Your question:", placeholder="Which features have the strongest relationship? How does log transform help?", label_visibility="collapsed")
         with btn_col:
-            send = st.form_submit_button("Ask 🌸", use_container_width=True)
+            send = st.form_submit_button("Ask Iris", use_container_width=True)
 
     if send and user_q:
         S["chat_history"].append({"role": "user", "text": user_q})
@@ -2029,7 +2286,7 @@ elif S["step"] == "communication":
         st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    if st.button("🔄 Start New Data Science Project", use_container_width=False):
+    if st.button("Start New Data Science Project", use_container_width=False):
         for key in list(S.keys()):
             del st.session_state[key]
         st.rerun()

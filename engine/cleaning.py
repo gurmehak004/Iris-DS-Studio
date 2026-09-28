@@ -309,6 +309,8 @@ def encode_categorical(df: pd.DataFrame, column: str, method: str) -> Tuple[pd.D
     
     if method == "one_hot":
         dummies = pd.get_dummies(s, prefix=column, drop_first=False, dtype=int)
+        existing_dummies = dummies.columns.intersection(new_df.columns)
+        new_df = new_df.drop(columns=existing_dummies, errors="ignore")
         new_df = pd.concat([new_df, dummies], axis=1)
         return new_df, f"Applied One-Hot Encoding to '{column}' ({len(dummies.columns)} dummy columns created)."
         

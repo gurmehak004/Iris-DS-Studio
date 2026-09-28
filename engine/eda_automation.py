@@ -16,21 +16,21 @@ import datetime
 from engine.viz import sanitize_fig_for_html
 
 # ── Color Palette ──────────────────────────────────────────────────────────────
-BG        = "#090912"
-CARD_BG   = "#151528"
-PURPLE    = "#8B5CF6"
-CYAN      = "#06B6D4"
-PINK      = "#EC4899"
-GREEN     = "#10B981"
-AMBER     = "#F59E0B"
-BLUE      = "#3B82F6"
+BG        = "#FAFAFC"
+CARD_BG   = "#FFFFFF"
+PURPLE    = "#7C3AED"
+CYAN      = "#0891B2"
+PINK      = "#DB2777"
+GREEN     = "#059669"
+AMBER     = "#D97706"
+BLUE      = "#2563EB"
 
-PALETTE   = [PURPLE, CYAN, PINK, GREEN, AMBER, BLUE, "#F97316", "#A855F7"]
+PALETTE   = [PURPLE, CYAN, PINK, GREEN, AMBER, BLUE, "#EA580C", "#9333EA"]
 
 LAYOUT_DEFAULTS = dict(
-    plot_bgcolor="#0F0F20",
+    plot_bgcolor="#FAFAFC",
     paper_bgcolor=CARD_BG,
-    font=dict(color="#F3F4F6", family="Inter, sans-serif", size=12),
+    font=dict(color="#0F172A", family="Inter, sans-serif", size=12),
     margin=dict(l=45, r=25, t=55, b=45),
     height=420,
 )
@@ -40,8 +40,8 @@ def _styled_fig(fig, title: str = ""):
     fig.update_layout(**LAYOUT_DEFAULTS)
     if title:
         fig.update_layout(title=dict(text=title, font=dict(size=15, color=PURPLE, family="Inter, sans-serif")))
-    fig.update_xaxes(gridcolor="#2A2A48", zerolinecolor="#2A2A48", tickfont=dict(color="#D1D5DB", size=11))
-    fig.update_yaxes(gridcolor="#2A2A48", zerolinecolor="#2A2A48", tickfont=dict(color="#D1D5DB", size=11))
+    fig.update_xaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0", tickfont=dict(color="#475569", size=11))
+    fig.update_yaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0", tickfont=dict(color="#475569", size=11))
     if any(getattr(t, "type", None) == "parcoords" for t in fig.data):
         fig.update_layout(margin=dict(l=60, r=60, t=75, b=40))
     return fig

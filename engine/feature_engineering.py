@@ -174,6 +174,8 @@ def apply_transformation(df: pd.DataFrame, column: str, transform_type: str, **k
         
     elif transform_type == "one_hot":
         dummies = pd.get_dummies(s, prefix=column, drop_first=False, dtype=int)
+        existing_dummies = dummies.columns.intersection(new_df.columns)
+        new_df = new_df.drop(columns=existing_dummies, errors="ignore")
         new_df = pd.concat([new_df, dummies], axis=1)
         return new_df, f"Created {len(dummies.columns)} One-Hot dummy features from '{column}'"
         
@@ -312,25 +314,37 @@ def generate_fe_plan(df: pd.DataFrame, col_types: Dict[str, str]) -> Dict[str, A
     for col, ctype in col_types.items():
         if col not in df.columns:
             continue
-        s = df[col].dropna()
+            
+        col_data = df[col]
+        if isinstance(col_data, pd.DataFrame):
+            col_data = col_data.iloc[:, 0]
+        s = col_data.dropna()
         if len(s) == 0:
             continue
 
         if ctype == "numeric":
-            skew_val = s.skew()
-            if abs(skew_val) > 1.0:
-                plan_items.append({"col": col, "type": "Log Transform (Skew Fix)", "est_cols": 1})
-                estimated_new_cols += 1
+            try:
+                skew_val = s.skew()
+                skew = float(skew_val.iloc[0]) if isinstance(skew_val, (pd.Series, np.ndarray)) else float(skew_val)
+                if abs(skew) > 1.0:
+                    plan_items.append({"col": col, "type": "Log Transform (Skew Fix)", "est_cols": 1})
+                    estimated_new_cols += 1
+            except Exception:
+                pass
             plan_items.append({"col": col, "type": "Z-Score Scaling", "est_cols": 1})
             estimated_new_cols += 1
         elif ctype in ("categorical", "boolean"):
-            nu = s.nunique()
-            if nu == 2:
-                plan_items.append({"col": col, "type": "Binary 0/1 Encoding", "est_cols": 1})
-                estimated_new_cols += 1
-            elif nu <= 10:
-                plan_items.append({"col": col, "type": f"One-Hot Encoding ({nu} dummy cols)", "est_cols": nu})
-                estimated_new_cols += nu
+            try:
+                nu = s.nunique()
+                n_unique = int(nu.iloc[0]) if isinstance(nu, (pd.Series, np.ndarray)) else int(nu)
+                if n_unique == 2:
+                    plan_items.append({"col": col, "type": "Binary 0/1 Encoding", "est_cols": 1})
+                    estimated_new_cols += 1
+                elif n_unique <= 10:
+                    plan_items.append({"col": col, "type": f"One-Hot Encoding ({n_unique} dummy cols)", "est_cols": n_unique})
+                    estimated_new_cols += n_unique
+            except Exception:
+                pass
         elif ctype == "datetime":
             plan_items.append({"col": col, "type": "Date Decomposition (Yr, Mo, Day, DoW)", "est_cols": 4})
             estimated_new_cols += 4
