@@ -183,8 +183,14 @@ def build_html_dashboard(
                     
                     mean_val = s.mean()
                     median_val = s.median()
-                    fig_num.add_vline(x=mean_val, line_dash="dash", line_color="#E2E8F0", annotation_text="Mean")
-                    fig_num.add_vline(x=median_val, line_dash="dot", line_color="#9CA3AF", annotation_text="Median")
+                    fig_num.add_vline(
+                      x=mean_val, line_dash="dash", line_color="#E2E8F0",
+                      annotation_text="Mean", annotation_position="top left",
+                    )
+                    fig_num.add_vline(
+                      x=median_val, line_dash="dot", line_color="#9CA3AF",
+                      annotation_text="Median", annotation_position="top right",
+                    )
                     
                     _styled_fig(fig_num, f"Distribution: {col}")
                     fig_num.update_layout(height=320, bargap=0.1)
