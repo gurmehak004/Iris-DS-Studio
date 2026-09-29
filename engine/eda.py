@@ -159,6 +159,8 @@ def generate_eda_key_findings(df: pd.DataFrame, col_types: Dict[str, str]) -> Li
     if df is None or df.empty:
         return findings
 
+    col_types = {col: kind for col, kind in col_types.items() if col in df.columns}
+
     # 1. Correlation findings
     corr_res = correlation_matrix(df, col_types)
     if corr_res and corr_res.get("top_pairs"):
