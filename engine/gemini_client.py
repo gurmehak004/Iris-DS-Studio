@@ -11,7 +11,7 @@ import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
 
-_GEMINI_MODEL = "gemini-2.5-flash"
+_GEMINI_MODEL = "gemini-3.8-flash"
 
 
 def _get_api_key() -> str:
@@ -52,6 +52,46 @@ def test_gemini_connection() -> tuple[bool, str]:
         if detail:
             message = f"{message} {detail}"
         return False, message
+
+
+def review_model_recommendations(
+    recommendations: Dict[str, Any],
+    dataset_summary: Dict[str, Any],
+) -> tuple[bool, str]:
+    api_key = _get_api_key()
+    if not api_key:
+        return False, "Gemini review was not run: no key is configured for this app."
+
+    prompt = f"""
+You are Iris, a practical machine-learning advisor. Review the rule-based model candidates
+for this dataset and give a concise, specific recommendation.
+
+Dataset summary:
+{json.dumps(dataset_summary, default=str)}
+
+Task type and candidate models:
+{json.dumps(recommendations, default=str)}
+
+Recommend the best one or two candidates from the supplied list for this dataset, explain
+the trade-offs, and mention any relevant data-quality or evaluation cautions. Do not claim
+that any model has been trained, tested, or scored. Do not invent evaluation results.
+If the target or dataset information is insufficient, say so clearly.
+"""
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents=prompt,
+        )
+        if response.text and response.text.strip():
+            return True, response.text.strip()
+        return False, "Gemini returned an empty response; the rule-based recommendations remain available."
+    except Exception as exc:
+        logging.warning("Gemini model recommendation review failed (%s)", type(exc).__name__)
+        return False, (
+            f"Gemini review failed ({type(exc).__name__}); the rule-based recommendations "
+            "remain available. Check the app's Gemini configuration and network access."
+        )
 
 
 def _fallback_response(fallback_text: str, reason: str) -> str:

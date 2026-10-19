@@ -97,21 +97,44 @@ def suggest_target_column(df: pd.DataFrame, domain: str = "general") -> Optional
     """
     if df is None or df.empty:
         return None
-    
-    keywords = DOMAINS.get(domain, DOMAINS["general"])["target_keywords"]
-    
-    # 1. Exact match checking
+
+    normalized_columns = {col: str(col).strip().casefold() for col in df.columns}
+
+    # Generic labels should only match whole column names, not substrings such as "y" in "age_years".
     for col in df.columns:
-        col_lower = str(col).lower()
-        if col_lower in ["target", "label", "y", "churn", "survived", "outcome"]:
+        if normalized_columns[col] in {"target", "label", "y", "churn", "survived", "outcome"}:
             return col
-            
-    # 2. Substring match against domain keywords
-    for kw in keywords:
-        for col in df.columns:
-            if kw in str(col).lower():
+
+    keywords = DOMAINS.get(domain, DOMAINS["general"])["target_keywords"]
+    generic_keywords = {"target", "label", "class", "result", "y", "output"}
+    semantic_keywords = [
+        keyword.casefold()
+        for keyword in keywords
+        if keyword.casefold() not in generic_keywords
+    ]
+
+    # Prefer an exact semantic match before looser substring matches.
+    for keyword in semantic_keywords:
+        for col, col_name in normalized_columns.items():
+            if col_name == keyword:
                 return col
-                
-    # 3. Fallback to last column if numeric or binary
+
+    for keyword in semantic_keywords:
+        if len(keyword) < 3:
+            continue
+        for col, col_name in normalized_columns.items():
+            if keyword in col_name:
+                return col
+
+    # Match generic labels only as complete underscore/space-delimited tokens.
+    for keyword in keywords:
+        if keyword.casefold() not in generic_keywords:
+            continue
+        for col, col_name in normalized_columns.items():
+            tokens = col_name.replace("-", "_").replace(" ", "_").split("_")
+            if keyword.casefold() in tokens:
+                return col
+
+    # 3. Fallback to last column only when no meaningful target name is present.
     last_col = df.columns[-1]
     return last_col

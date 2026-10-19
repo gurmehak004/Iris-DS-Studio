@@ -181,7 +181,7 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
         except Exception:
             pass
 
-    # 6. GROUPED VIOLIN PLOTS (NUMERIC BY CATEGORICAL)
+    # 6. GROUPED BOXPLOTS (NUMERIC BY CATEGORICAL)
     if numeric_cols and cat_cols:
         for num_c in numeric_cols[:2]:
             for cat_c in cat_cols[:2]:
@@ -193,15 +193,31 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
                     top_cats = tmp_full[cat_c].value_counts().head(6).index.tolist()
                     tmp = tmp_full[tmp_full[cat_c].isin(top_cats)].dropna()
                     if len(tmp) > 0:
-                        fig_g = px.violin(tmp, x=cat_c, y=num_c, box=True, color=cat_c, color_discrete_sequence=PALETTE)
+                        category_order = (
+                            tmp.groupby(cat_c)[num_c]
+                            .median()
+                            .sort_values()
+                            .index.tolist()
+                        )
+                        fig_g = px.box(
+                            tmp,
+                            x=cat_c,
+                            y=num_c,
+                            color=cat_c,
+                            category_orders={cat_c: category_order},
+                            points="outliers",
+                            color_discrete_sequence=PALETTE,
+                        )
+                        fig_g.update_layout(showlegend=False)
+                        fig_g.update_yaxes(title=num_c)
                         _styled_fig(fig_g, f"{num_c} Distribution across {cat_c}")
                         why_text = f"Groups numerical variable '{num_c}' across categories of '{cat_c}'. "
-                        why_text += f"Highlights median shifts, dispersion, and multimodality across groups."
+                        why_text += "Boxes show the middle 50% of values, center lines show medians, and whiskers summarize the remaining spread."
 
                         recommendations.append({
-                            "id": f"group_violin_{num_c}_{cat_c}",
+                            "id": f"group_box_{num_c}_{cat_c}",
                             "title": f"Grouped Breakdown — {num_c} by {cat_c}",
-                            "chart_type": "Grouped Violin Plot",
+                            "chart_type": "Grouped Box Plot",
                             "columns": [num_c, cat_c],
                             "category": "Bivariate Relationships",
                             "why": why_text,
