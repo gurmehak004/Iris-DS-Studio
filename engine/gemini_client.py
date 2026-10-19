@@ -29,31 +29,6 @@ def is_gemini_api_key_configured() -> bool:
     return bool(_get_api_key())
 
 
-def test_gemini_connection() -> tuple[bool, str]:
-    api_key = _get_api_key()
-    if not api_key:
-        return False, "No Gemini key is configured in this app's environment or Streamlit secrets."
-
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=_GEMINI_MODEL,
-            contents="Reply with exactly: OK",
-        )
-        if not response.text or not response.text.strip():
-            return False, "Gemini accepted the request but returned an empty response."
-        return True, f"Gemini connection works (model: {_GEMINI_MODEL})."
-    except Exception as exc:
-        logging.warning("Gemini connection test failed (%s)", type(exc).__name__)
-        detail = str(exc).replace(api_key, "[redacted]").strip()
-        if len(detail) > 240:
-            detail = f"{detail[:237]}..."
-        message = f"Gemini request failed ({type(exc).__name__})."
-        if detail:
-            message = f"{message} {detail}"
-        return False, message
-
-
 def review_model_recommendations(
     recommendations: Dict[str, Any],
     dataset_summary: Dict[str, Any],
@@ -301,7 +276,8 @@ def chat_with_iris(question: str, dataset_context: str) -> str:
 
     prompt = f"""
 You are Iris, a friendly expert data science assistant embedded in a data analysis tool.
-Answer the user's question clearly and helpfully. Use the dataset context provided.
+Answer the user's question clearly and helpfully. Use the dataset context provided. Reply in text;
+do not embed images, image links, or HTML.
 
 Dataset context:
 {dataset_context}

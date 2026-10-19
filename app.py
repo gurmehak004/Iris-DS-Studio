@@ -13,6 +13,7 @@ import numpy as np
 import hashlib
 import json
 import os
+import re
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -49,7 +50,7 @@ from engine.feature_engineering import (
 from engine.gemini_client import (
     explain_file_overview, explain_data_quality, explain_column,
     explain_correlations, chat_with_iris, generate_executive_summary, generate_stage_insights,
-    is_gemini_api_key_configured, test_gemini_connection, review_model_recommendations
+    is_gemini_api_key_configured, review_model_recommendations
 )
 from engine.ml_recommender import recommend_ml_models
 from ui.styles import inject_custom_css
@@ -1266,19 +1267,28 @@ elif S["step"] == "data_cleaning":
     # ── 7-Step Cleaning Workflow Status Bar ───────────────────────────────────
     _miss_count = len(q["missing"]) if q and "missing" in q and hasattr(q["missing"], "__len__") else 0
     _dup_count = int(df.duplicated().sum())
-    _out_count = len(q["outliers"]) if q and "outliers" in q and hasattr(q["outliers"], "__len__") else 0
+    _outlier_df = q["outliers"] if q and "outliers" in q else pd.DataFrame()
+    _out_count = len(_outlier_df)
+    _iqr_outlier_count = int((_outlier_df["iqr_outliers"] > 0).sum()) if "iqr_outliers" in _outlier_df else 0
+    _zscore_outlier_count = int((_outlier_df["zscore_outliers"] > 0).sum()) if "zscore_outliers" in _outlier_df else 0
+    _outlier_status = (
+        "Clean"
+        if not _out_count
+        else f"IQR {_iqr_outlier_count} | Z {_zscore_outlier_count}"
+    )
     _struct_issues = detect_structural_errors(S["df"])
     _struct_count = len(_struct_issues)
     _cat_cols = [c for c, t in S["col_types"].items() if t in ("categorical", "boolean")]
     _num_cols_raw = [c for c, t in S["col_types"].items() if t == "numeric"]
 
-    def _step_cell(num, label, count, ok_msg):
+    def _step_cell(num, label, count, ok_msg, issue_text=None):
         if count == 0:
             bg = "rgba(5,150,105,0.08)"; border = "#059669"
             status_html = f'<div style="font-size:0.75rem; font-weight:800; color:#059669;">{ok_msg}</div>'
         else:
             bg = "rgba(217,119,6,0.08)"; border = "#D97706"
-            status_html = f'<div style="font-size:0.75rem; font-weight:800; color:#D97706;">{count} issues</div>'
+            display_status = issue_text or f"{count} issues"
+            status_html = f'<div style="font-size:0.75rem; font-weight:800; color:#D97706;">{display_status}</div>'
         return f"""<div style="background:{bg}; border:1px solid {border}40; border-top:3px solid {border};
                             border-radius:10px; padding:12px 14px; text-align:center; min-width:0; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
                     <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step {num}</div>
@@ -1310,7 +1320,7 @@ elif S["step"] == "data_cleaning":
         <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:10px;">
             {_step_cell(1, 'Missing Values', _miss_count, 'Clean')}
             {_step_cell(2, 'Duplicates', _dup_count, 'Clean')}
-            {_step_cell(3, 'Outliers', _out_count, 'Clean')}
+            {_step_cell(3, 'Outliers', _out_count, 'Clean', _outlier_status)}
             {_step_cell(4, 'Structural', _struct_count, 'Clean')}
             <div style="background:rgba(124,58,237,0.06); border:1px solid rgba(124,58,237,0.2); border-top:3px solid #7C3AED; border-radius:10px; padding:12px 14px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
                 <div style="font-size:0.65rem; color:#64748B; font-weight:800; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:5px;">Step 5</div>
@@ -1339,7 +1349,7 @@ elif S["step"] == "data_cleaning":
         "5. Categorical Encoding",
         "6. Feature Scaling",
         "7. Data Reduction"
-    ])
+    ], key="cleaning_workflow_tabs", on_change="rerun")
 
 
     with t_miss:
@@ -1442,23 +1452,30 @@ elif S["step"] == "data_cleaning":
         out_df = q["outliers"]
         if len(out_df) > 0:
             render_styled_dataframe(out_df, use_container_width=True)
-            if st.button("Cap All IQR Outliers to Boundaries (1-Click)", type="primary", key="btn_cap_all_outliers"):
-                new_df = S["df"].copy()
-                for _, r in out_df.iterrows():
-                    c = r["column"]
-                    if c in new_df.columns:
-                        s_n = pd.to_numeric(new_df[c], errors="coerce").astype(float)
-                        q1, q3 = s_n.quantile(0.25), s_n.quantile(0.75)
-                        iqr = q3 - q1
-                        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-                        new_df[c] = s_n.clip(lower=lo, upper=hi)
+            iqr_outlier_df = out_df[out_df["iqr_outliers"] > 0]
+            if len(iqr_outlier_df) > 0:
+                if st.button("Cap All IQR Outliers to Boundaries (1-Click)", type="primary", key="btn_cap_all_outliers"):
+                    new_df = S["df"].copy()
+                    for _, r in iqr_outlier_df.iterrows():
+                        c = r["column"]
+                        if c in new_df.columns:
+                            s_n = pd.to_numeric(new_df[c], errors="coerce").astype(float)
+                            q1, q3 = s_n.quantile(0.25), s_n.quantile(0.75)
+                            iqr = q3 - q1
+                            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+                            new_df[c] = s_n.clip(lower=lo, upper=hi)
 
-                S["df"] = new_df
-                S["quality"] = full_quality_report(S["df"], S["col_types"])
-                msg = "Capped extreme outliers across all numeric columns to IQR boundaries."
-                S["cleaning_log"].append(msg)
-                st.toast(msg)
-                st.rerun()
+                    S["df"] = new_df
+                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    msg = f"Capped IQR outliers in {len(iqr_outlier_df)} column(s) to their IQR boundaries."
+                    S["cleaning_log"].append(msg)
+                    st.toast(msg)
+                    st.rerun()
+            elif _zscore_outlier_count:
+                st.info(
+                    f"No IQR outliers were detected. {_zscore_outlier_count} column(s) have "
+                    "Z-score outliers; select the Z-score method below to review or treat them."
+                )
         else:
             st.info("No significant outliers detected.")
 
@@ -1749,7 +1766,7 @@ elif S["step"] == "eda":
         "1. Automated Recommended Charts",
         "2. Feature Deep-Dive Explorer",
         "3. Correlation & Bivariate Matrix"
-    ])
+    ], key="eda_main_tabs", on_change="rerun")
 
     with tab_auto_charts:
         render_section_header(f"{len(eda_recs)} Automated Chart Recommendations for your Dataset", "bulb", badge="Auto-Generated", badge_color="#8B5CF6")
@@ -1814,7 +1831,11 @@ elif S["step"] == "eda":
             s = pd.to_numeric(col_s, errors="coerce").dropna()
             plot_df = pd.DataFrame({selected_col: s})
 
-            t1, t2, t3, t4 = st.tabs(["Distribution Histogram", "Violin Plot", "Box Plot", "Outlier Strip"])
+            t1, t2, t3, t4 = st.tabs(
+                ["Distribution Histogram", "Violin Plot", "Box Plot", "Outlier Strip"],
+                key=f"eda_numeric_chart_tabs_{selected_col}",
+                on_change="rerun",
+            )
             with t1:
                 fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#7C3AED"], marginal="rug")
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
@@ -1841,7 +1862,11 @@ elif S["step"] == "eda":
             col_s = df[selected_col].iloc[:, 0] if isinstance(df[selected_col], pd.DataFrame) else df[selected_col]
             vc = col_s.value_counts().head(20).reset_index()
             vc.columns = ["Category", "Count"]
-            t1, t2 = st.tabs(["Bar Chart", "Pie Chart"])
+            t1, t2 = st.tabs(
+                ["Bar Chart", "Pie Chart"],
+                key=f"eda_categorical_chart_tabs_{selected_col}",
+                on_change="rerun",
+            )
             with t1:
                 fig = px.bar(vc, x="Count", y="Category", orientation="h", color="Count", color_continuous_scale=["#E2E8F0", "#0891B2"])
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), yaxis=dict(title=selected_col))
@@ -2087,7 +2112,13 @@ elif S["step"] == "communication":
         "fe_count": len(S.get("transformation_log", []))
     }
     
-    exec_summary_text = generate_executive_summary(pipeline_stats)
+    pipeline_signature = hashlib.sha256(
+        json.dumps(pipeline_stats, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    if S.get("executive_summary_signature") != pipeline_signature:
+        S["executive_summary_text"] = generate_executive_summary(pipeline_stats)
+        S["executive_summary_signature"] = pipeline_signature
+    exec_summary_text = S["executive_summary_text"]
     with st.expander("AI Executive Narrative Briefing", expanded=True):
         st.markdown(exec_summary_text)
 
@@ -2321,34 +2352,13 @@ elif S["step"] == "communication":
 
     # Ask Iris Chat
     render_section_header("Ask Iris AI Anything", "chat")
-    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>Ask about your selected target or dataset columns. Built-in answers work without an API key; Gemini is an optional enhancement configured by the app administrator.</div>", unsafe_allow_html=True)
-    if is_gemini_api_key_configured():
-        st.caption("Gemini-enhanced answers are enabled for this app.")
-    else:
-        st.caption("Built-in dataset answers are active. Gemini-enhanced open-ended answers are not enabled for this app.")
-    if st.button("Test Gemini connection", key="test_gemini_connection"):
-        with st.spinner("Testing the app's Gemini configuration..."):
-            connected, connection_message = test_gemini_connection()
-        if connected:
-            st.success(connection_message)
-        else:
-            st.error(connection_message)
+    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>Ask about your selected target, dataset, or analysis.</div>", unsafe_allow_html=True)
 
     for msg in S["chat_history"]:
-        role_label = "<strong style='color:#5B21B6;'>Iris</strong>" if msg["role"] == "iris" else "<strong style='color:#0E7490;'>You</strong>"
-        align = "left" if msg["role"] == "iris" else "right"
-        bg = "rgba(139,92,246,0.12)" if msg["role"] == "iris" else "rgba(6,182,212,0.12)"
-        border = "#8B5CF6" if msg["role"] == "iris" else "#06B6D4"
-        st.markdown(f"""
-        <div style="text-align:{align}; margin:8px 0;">
-            <div style="display:inline-block; background:{bg}; border:1px solid {border};
-                        border-radius:12px; padding:12px 16px; max-width:75%;
-                        text-align:left; color:#1E293B; font-size:0.9rem; line-height:1.6;">
-                <div style="font-size:0.75rem; text-transform:uppercase; margin-bottom:4px; opacity:0.8;">{role_label}</div>
-                {msg['text']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        role = "assistant" if msg["role"] == "iris" else "user"
+        with st.chat_message(role):
+            chat_text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", msg["text"])
+            st.markdown(chat_text)
 
     with st.form("chat_form", clear_on_submit=True):
         q_col, btn_col = st.columns([5, 1])

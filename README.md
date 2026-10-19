@@ -37,9 +37,8 @@ Iris Data Studio is a premium, AI-powered automated data science workspace. It t
    ```toml
    GEMINI_API_KEY = "your-api-key-here"
    ```
-   Save the settings and reboot the app. In the deployed app, use **Test Gemini connection**
-   in the Iris chat section to verify an actual Gemini API request. The app never displays
-   the key.
+   Save the settings and reboot the app. Use **Ask Gemini to review these models** in the
+   Communication stage to verify a Gemini response. The app never displays the key.
    Do not ask end users to provide or paste API keys, and never commit keys. Basic dataset
    questions are answered by Iris without Gemini; the key only enables Gemini-enhanced
    open-ended responses. Failed Gemini requests fall back to built-in answers.
