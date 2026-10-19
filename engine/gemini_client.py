@@ -4,38 +4,134 @@ Gemini API wrapper with prompt templates for each pipeline step.
 """
 import os
 import json
-import google.generativeai as genai
+import logging
+from google import genai
 from typing import Dict, Any, Optional
+import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 
-def _get_model():
-    api_key = os.getenv("GEMINI_API_KEY", "")
+_GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def _get_api_key() -> str:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if api_key:
+        return api_key
+
+    try:
+        return str(st.secrets.get("GEMINI_API_KEY", "") or "").strip()
+    except StreamlitSecretNotFoundError:
+        return ""
+
+
+def is_gemini_api_key_configured() -> bool:
+    return bool(_get_api_key())
+
+
+def test_gemini_connection() -> tuple[bool, str]:
+    api_key = _get_api_key()
     if not api_key:
-        try:
-            import streamlit as st
-            if "GEMINI_API_KEY" in st.secrets:
-                api_key = st.secrets["GEMINI_API_KEY"]
-        except Exception:
-            pass
-    if not api_key:
+        return False, "No Gemini key is configured in this app's environment or Streamlit secrets."
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents="Reply with exactly: OK",
+        )
+        if not response.text or not response.text.strip():
+            return False, "Gemini accepted the request but returned an empty response."
+        return True, f"Gemini connection works (model: {_GEMINI_MODEL})."
+    except Exception as exc:
+        logging.warning("Gemini connection test failed (%s)", type(exc).__name__)
+        detail = str(exc).replace(api_key, "[redacted]").strip()
+        if len(detail) > 240:
+            detail = f"{detail[:237]}..."
+        message = f"Gemini request failed ({type(exc).__name__})."
+        if detail:
+            message = f"{message} {detail}"
+        return False, message
+
+
+def _fallback_response(fallback_text: str, reason: str) -> str:
+    message = fallback_text or "Iris could not generate an AI response."
+    return f"{message}\n\n{reason}"
+
+
+def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
+    try:
+        context = json.loads(dataset_context)
+    except (TypeError, json.JSONDecodeError):
         return None
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+
+    normalized_question = question.casefold()
+    target_terms = ("target", "predict", "outcome", "label")
+    if any(term in normalized_question for term in target_terms):
+        target = context.get("target_feature")
+        if not target:
+            return (
+                "A target feature is the column you want a future model to predict. "
+                "There isn't a target selected in this project yet. Choose the outcome "
+                "you care about, and make sure it isn't an ID or a value calculated from "
+                "information that would not be available at prediction time."
+            )
+
+        target_type = context.get("target_feature_type", "unknown")
+        stats = context.get("target_feature_statistics") or {}
+        answer = (
+            f"The selected target feature is **{target}** (inferred type: {target_type}). "
+            "It is the outcome a supervised model would try to predict—not automatically "
+            "the most important or best feature. Use it if this is the outcome your "
+            "analysis is meant to explain or predict; otherwise select a different "
+            "outcome before interpreting model recommendations."
+        )
+        if target_type == "numeric" and stats:
+            answer += (
+                f" Its observed mean is {stats.get('mean', 'unavailable')}, with values "
+                f"from {stats.get('min', 'unavailable')} to {stats.get('max', 'unavailable')}."
+            )
+        elif target_type in ("categorical", "boolean") and stats:
+            answer += (
+                f" It has {stats.get('unique', 'an unknown number of')} distinct values; "
+                f"the most common is '{stats.get('top_value', 'unavailable')}'."
+            )
+        return answer
+
+    if any(term in normalized_question for term in ("column", "feature", "field")):
+        columns = context.get("columns") or {}
+        if columns:
+            column_list = ", ".join(f"{name} ({kind})" for name, kind in columns.items())
+            return f"This dataset has {context.get('row_count', 'an unknown number of')} rows. Its columns are: {column_list}."
+
+    return None
 
 
 def _safe_generate(prompt: str, fallback_text: str = "") -> str:
+    api_key = _get_api_key()
+    if not api_key:
+        return _fallback_response(
+            fallback_text,
+            "This is Iris's built-in response. Gemini-enhanced responses are not enabled "
+            "for this app; no user action is needed.",
+        )
+
     try:
-        model = _get_model()
-        if model is not None:
-            response = model.generate_content(prompt)
-            if response.text and response.text.strip():
-                return response.text.strip()
-    except Exception:
-        pass
-    
-    if fallback_text:
-        return fallback_text
-    return "Iris has processed your dataset metrics. Connect your Gemini API Key in the sidebar for personalized LLM narrative insights!"
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents=prompt,
+        )
+        if response.text and response.text.strip():
+            return response.text.strip()
+        raise ValueError("Gemini returned an empty response")
+    except Exception as exc:
+        logging.warning("Gemini request failed (%s)", type(exc).__name__)
+        return _fallback_response(
+            fallback_text,
+            f"Gemini could not generate a response ({type(exc).__name__}). Showing Iris's "
+            "built-in response instead; contact the app administrator if this continues.",
+        )
 
 
 
@@ -158,6 +254,11 @@ All model results: {json.dumps(results)}
 # ── General chat ───────────────────────────────────────────────────────────────
 
 def chat_with_iris(question: str, dataset_context: str) -> str:
+    if not _get_api_key():
+        local_answer = _answer_chat_locally(question, dataset_context)
+        if local_answer:
+            return local_answer
+
     prompt = f"""
 You are Iris, a friendly expert data science assistant embedded in a data analysis tool.
 Answer the user's question clearly and helpfully. Use the dataset context provided.
@@ -169,7 +270,10 @@ User question: {question}
 
 Answer in plain English, 3-6 sentences. Be specific to their data where possible.
 """
-    fallback = f"I've analyzed your question regarding '{question}'. Based on your dataset context ({dataset_context[:100]}...), make sure to review the correlation and quality tabs! For full AI conversational responses, add your Gemini API key in the sidebar."
+    fallback = (
+        "I can answer basic questions about the selected target and dataset columns here, "
+        "but I couldn't match this to one of those topics."
+    )
     return _safe_generate(prompt, fallback)
 
 
@@ -215,5 +319,3 @@ You are Iris AI. Generate 3 short, punchy bullet point insights summarizing stag
 • Verified feature health and column distribution integrity.
 • Pipeline ready to transition to the next analytical stage."""
     return _safe_generate(prompt, fallback)
-
-

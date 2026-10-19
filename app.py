@@ -48,7 +48,8 @@ from engine.feature_engineering import (
 )
 from engine.gemini_client import (
     explain_file_overview, explain_data_quality, explain_column,
-    explain_correlations, chat_with_iris, generate_executive_summary, generate_stage_insights
+    explain_correlations, chat_with_iris, generate_executive_summary, generate_stage_insights,
+    is_gemini_api_key_configured, test_gemini_connection
 )
 from engine.ml_recommender import recommend_ml_models
 from ui.styles import inject_custom_css
@@ -790,7 +791,6 @@ def init_state():
         "fe_explanations": [],
         "iris_says": {},
         "chat_history": [],
-        "dataset_context": "",
         "dataset_fingerprint": None,
     }
     for k, v in defaults.items():
@@ -2253,7 +2253,18 @@ elif S["step"] == "communication":
 
     # Ask Iris Chat
     render_section_header("Ask Iris AI Anything", "chat")
-    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>Ask questions about your data analysis, business findings, or feature engineering strategy.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>Ask about your selected target or dataset columns. Built-in answers work without an API key; Gemini is an optional enhancement configured by the app administrator.</div>", unsafe_allow_html=True)
+    if is_gemini_api_key_configured():
+        st.caption("Gemini-enhanced answers are enabled for this app.")
+    else:
+        st.caption("Built-in dataset answers are active. Gemini-enhanced open-ended answers are not enabled for this app.")
+    if st.button("Test Gemini connection", key="test_gemini_connection"):
+        with st.spinner("Testing the app's Gemini configuration..."):
+            connected, connection_message = test_gemini_connection()
+        if connected:
+            st.success(connection_message)
+        else:
+            st.error(connection_message)
 
     for msg in S["chat_history"]:
         role_label = "<strong style='color:#5B21B6;'>Iris</strong>" if msg["role"] == "iris" else "<strong style='color:#0E7490;'>You</strong>"
@@ -2280,8 +2291,19 @@ elif S["step"] == "communication":
 
     if send and user_q:
         S["chat_history"].append({"role": "user", "text": user_q})
+        target_col = S.get("target_col")
+        col_types = S.get("col_types") or {}
+        target_stats = (S.get("col_stats") or {}).get(target_col, {})
+        dataset_context = json.dumps({
+            "row_count": len(df),
+            "columns": {str(column): col_types.get(column, "unknown") for column in df.columns},
+            "target_feature": target_col,
+            "target_feature_type": col_types.get(target_col, "unknown"),
+            "target_feature_statistics": target_stats,
+            "business_goal": S.get("business_goal", ""),
+        }, default=str)
         with st.spinner("Iris is thinking..."):
-            answer = chat_with_iris(user_q, S["dataset_context"])
+            answer = chat_with_iris(user_q, dataset_context)
         S["chat_history"].append({"role": "iris", "text": answer})
         st.rerun()
 

@@ -28,10 +28,21 @@ Iris Data Studio is a premium, AI-powered automated data science workspace. It t
    ```bash
    pip install -r requirements.txt
    ```
-3. Set your Google Gemini API Key in your environment:
-   ```bash
-   export GEMINI_API_KEY="your-api-key-here"
+3. (Optional, for app operators) Configure a Google Gemini API key in the app environment (PowerShell):
+   ```powershell
+   $env:GEMINI_API_KEY = "your-api-key-here"
    ```
+   Alternatively, add `GEMINI_API_KEY = "your-api-key-here"` to `.streamlit\secrets.toml`.
+   For Streamlit Community Cloud, open the app's **Settings → Secrets**, add:
+   ```toml
+   GEMINI_API_KEY = "your-api-key-here"
+   ```
+   Save the settings and reboot the app. In the deployed app, use **Test Gemini connection**
+   in the Iris chat section to verify an actual Gemini API request. The app never displays
+   the key.
+   Do not ask end users to provide or paste API keys, and never commit keys. Basic dataset
+   questions are answered by Iris without Gemini; the key only enables Gemini-enhanced
+   open-ended responses. Failed Gemini requests fall back to built-in answers.
 4. Run the app:
    ```bash
    streamlit run app.py
