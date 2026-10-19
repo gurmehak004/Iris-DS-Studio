@@ -54,7 +54,7 @@ The five visible stages are:
 2. **Data Cleaning & Preprocessing:** Review quality findings and optionally apply cleaning actions.
 3. **Exploratory Data Analysis:** Inspect statistics and correlations, findings, and automatically recommended charts.
 4. **Feature Engineering:** Preview and apply transformations, create interactions, and optionally view the feature-importance preview.
-5. **Communication & Export:** Review the executive narrative and model recommendations; download reports or cleaned data.
+5. **Communication & Export:** Review the immediate executive summary and model recommendations; prepare reports or cleaned data only when needed.
 
 `app.py` uses `st.session_state` to retain the active DataFrame, metadata, inferred column types, quality results, statistics, correlations, target suggestion, and action logs as Streamlit reruns after interactions. The application has no persistent project database or saved analysis history.
 
@@ -213,7 +213,7 @@ There is a separate `engine/ml.py` module containing `train_model()` and `run_cl
 
 ## 10. AI Explanations
 
-`engine/gemini_client.py` uses the Google GenAI SDK and the `gemini-3.8-flash` model. It reads a Gemini key from `GEMINI_API_KEY` or Streamlit secrets, configured by the app operator rather than end users. In the app, Gemini is used for selected data-quality explanations, selected column-statistics explanations, an executive summary, open-ended chat, and an explicitly requested model-recommendation review. The recommendation cards themselves remain rule-generated; the review result is separately labeled as Gemini-generated only after a successful response. Basic target-feature and column questions are answered locally without a key. Gemini is optional; when it is unavailable, built-in answers remain available.
+`engine/gemini_client.py` uses the Google GenAI SDK and the `gemini-3.8-flash` model. It reads a Gemini key from `GEMINI_API_KEY` or Streamlit secrets, configured by the app operator rather than end users. Iris explanations and the expanded executive narrative run only when requested; API calls use a 15-second timeout and a single attempt. The final stage shows a local summary immediately, while its HTML, PDF, and CSV exports are prepared only on request. Gemini also supports open-ended chat and an explicitly requested model-recommendation review. The recommendation cards themselves remain rule-generated; the review result is separately labeled as Gemini-generated only after a successful response. Basic target-feature and column questions are answered locally without a key. Gemini is optional; when it is unavailable, built-in answers remain available.
 
 Stage 2 and EDA tab selections are persisted through Streamlit reruns. The outlier summary distinguishes columns with IQR flags from columns with Z-score flags. The one-click capping action only caps columns with detected IQR outliers; Z-score-only flags are called out separately so they are not mistaken for uncapped IQR issues.
 

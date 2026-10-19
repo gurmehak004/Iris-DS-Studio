@@ -801,6 +801,12 @@ def init_state():
 init_state()
 S = st.session_state
 
+
+@st.cache_data(show_spinner=False)
+def cached_data_health_score(df: pd.DataFrame):
+    return compute_data_health_score(df)
+
+
 if S["df"] is not None and not S["df"].columns.is_unique:
     duplicate_columns = S["df"].columns[S["df"].columns.duplicated()].unique().tolist()
     S["df"] = S["df"].loc[:, ~S["df"].columns.duplicated()].copy()
@@ -864,28 +870,16 @@ with st.sidebar:
     if S["df"] is not None and S["step"] != "business_collection":
         st.markdown("<div style='border-top:1px solid rgba(255,255,255,0.05); margin:8px 8px 0;'></div>", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-section-label'>Downloads</div>", unsafe_allow_html=True)
-
-        csv_bytes = build_cleaned_csv(S["df"])
-        st.download_button("Cleaned CSV", csv_bytes, "iris_cleaned.csv", "text/csv",
-                           use_container_width=True, key="side_dl_csv")
-
-        try:
-            html_str = build_html_dashboard(
-                S["meta"], S["col_types"], S["quality"] or {},
-                S["col_stats"] or {}, S["corr"] or {},
-                {}, S["iris_says"], S["df"]
-            )
-            st.download_button("Full HTML Dashboard", html_str, "iris_dashboard.html", "text/html",
-                               use_container_width=True, key="side_dl_html")
-        except Exception:
-            pass
+        st.caption("Prepare and download reports in the Communication & Export stage.")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 def iris_says_block(key: str, compute_fn=None, *args):
     if key not in S["iris_says"] and compute_fn:
-        with st.spinner("Iris is analyzing..."):
-            S["iris_says"][key] = compute_fn(*args)
+        st.caption("Iris can explain these results when you ask.")
+        if st.button("Ask Iris to explain", key=f"iris_explain_{key}"):
+            with st.spinner("Iris is analyzing..."):
+                S["iris_says"][key] = compute_fn(*args)
     text = S["iris_says"].get(key, "")
     if text:
         iris_icon = ICONS.get("iris", "")
@@ -1105,7 +1099,7 @@ if S["step"] == "business_collection":
         df = S["df"]
         meta = S["meta"]
         col_types = S["col_types"]
-        health = compute_data_health_score(df)
+        health = cached_data_health_score(df)
 
         st.markdown("<br>", unsafe_allow_html=True)
         target_options = df.columns.tolist()
@@ -1205,7 +1199,7 @@ elif S["step"] == "data_cleaning":
             S["quality"] = full_quality_report(df, S["col_types"])
 
     q = S["quality"]
-    health = compute_data_health_score(df)
+    health = cached_data_health_score(df)
 
     render_health_scorecard(health["score"], health["missing_cols"], health["dup_rows"], health["outlier_cols"])
 
@@ -2067,7 +2061,7 @@ elif S["step"] == "communication":
     render_stage_header(5, "Communication & Executive Debrief", "Executive summary view: plain-English AI narrative, project pipeline metrics, interactive HTML report, and cleaned dataset exports.")
 
     df = S["df"]
-    health = compute_data_health_score(df)
+    health = cached_data_health_score(df)
     target_options = df.columns.tolist()
     suggested_target = S.get("target_col")
     target_index = target_options.index(suggested_target) if suggested_target in target_options else 0
@@ -2100,7 +2094,7 @@ elif S["step"] == "communication":
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # AI Executive Summary Panel
+    # Show an immediate local summary; call Gemini only when requested.
     pipeline_stats = {
         "domain": S.get("domain", "General"),
         "business_goal": S.get("business_goal", ""),
@@ -2108,18 +2102,53 @@ elif S["step"] == "communication":
         "total_cols": len(df.columns),
         "health_score": health["score"],
         "target_col": S.get("target_col", "None"),
-        "cleaning_count": len(S.get("cleaning_log", [])),
-        "fe_count": len(S.get("transformation_log", []))
+        "cleaning_actions": S.get("cleaning_log", []),
+        "feature_engineering_actions": S.get("transformation_log", []),
     }
     
     pipeline_signature = hashlib.sha256(
         json.dumps(pipeline_stats, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
+    report_signature = hashlib.sha256(
+        json.dumps(
+            {
+                "pipeline": pipeline_signature,
+                "dataset_fingerprint": S.get("dataset_fingerprint"),
+                "columns": [str(column) for column in df.columns],
+                "shape": df.shape,
+            },
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
     if S.get("executive_summary_signature") != pipeline_signature:
-        S["executive_summary_text"] = generate_executive_summary(pipeline_stats)
+        cleaning_count = len(pipeline_stats["cleaning_actions"])
+        fe_count = len(pipeline_stats["feature_engineering_actions"])
+        cleaning_entry_word = "entry" if cleaning_count == 1 else "entries"
+        fe_entry_word = "entry" if fe_count == 1 else "entries"
+        S["executive_summary_text"] = (
+            "### Executive briefing\n"
+            f"This {pipeline_stats['domain']} dataset contains {len(df):,} rows and "
+            f"{len(df.columns):,} columns. The selected target is "
+            f"**{pipeline_stats['target_col']}**. Its current data health score is "
+            f"**{health['score']}/100**. The workflow records {cleaning_count} cleaning "
+            f"log {cleaning_entry_word} and {fe_count} feature-engineering log "
+            f"{fe_entry_word}.\n\n"
+            "### Recommended next step\n"
+            "Review the target and data-quality findings before training and evaluating "
+            "a model. Iris has not trained a model or measured predictive performance."
+        )
         S["executive_summary_signature"] = pipeline_signature
+    gemini_configured = is_gemini_api_key_configured()
+    if gemini_configured and st.button(
+        "Ask Gemini to write an executive narrative", key="gemini_executive_summary"
+    ):
+        with st.spinner("Gemini is writing the executive narrative..."):
+            S["executive_summary_text"] = generate_executive_summary(pipeline_stats)
+    elif not gemini_configured:
+        st.caption("Showing an instant built-in summary. Gemini is not configured for this app.")
     exec_summary_text = S["executive_summary_text"]
-    with st.expander("AI Executive Narrative Briefing", expanded=True):
+    with st.expander("Executive Summary", expanded=True):
         st.markdown(exec_summary_text)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -2300,16 +2329,27 @@ elif S["step"] == "communication":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        try:
-            html_str = build_html_dashboard(
-                S["meta"], S["col_types"], S["quality"] or {},
-                S["col_stats"] or {}, S["corr"] or {},
-                {}, S["iris_says"], S["df"]
+        if st.button("Prepare HTML Dashboard", key="prepare_html_dashboard"):
+            try:
+                with st.spinner("Building the interactive HTML dashboard..."):
+                    S["prepared_html_dashboard"] = build_html_dashboard(
+                        S["meta"], S["col_types"], S["quality"] or {},
+                        S["col_stats"] or {}, S["corr"] or {},
+                        {}, S["iris_says"], S["df"]
+                    )
+                    S["prepared_html_dashboard_signature"] = report_signature
+            except Exception as e:
+                st.error(f"Error generating HTML: {e}")
+        if S.get("prepared_html_dashboard_signature") == report_signature:
+            st.download_button(
+                "Download Full HTML Dashboard",
+                S["prepared_html_dashboard"],
+                "iris_dashboard.html",
+                "text/html",
+                use_container_width=True,
+                type="primary",
+                key="comm_dl_html",
             )
-            st.download_button("Download Full HTML Dashboard", html_str, "iris_dashboard.html", "text/html",
-                               use_container_width=True, type="primary", key="comm_dl_html")
-        except Exception as e:
-            st.error(f"Error generating HTML: {e}")
 
     with d2:
         st.markdown("""
@@ -2320,16 +2360,27 @@ elif S["step"] == "communication":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        try:
-            pdf_bytes = build_pdf_report(
-                S["meta"], S["col_types"], S["quality"] or {},
-                S["col_stats"] or {}, S["corr"] or {},
-                {}, S["iris_says"]
+        if st.button("Prepare PDF Report", key="prepare_pdf_report"):
+            try:
+                with st.spinner("Building the PDF report..."):
+                    S["prepared_pdf_report"] = build_pdf_report(
+                        S["meta"], S["col_types"], S["quality"] or {},
+                        S["col_stats"] or {}, S["corr"] or {},
+                        {}, S["iris_says"]
+                    )
+                    S["prepared_pdf_report_signature"] = report_signature
+            except Exception as e:
+                st.error(f"Error generating PDF: {e}")
+        if S.get("prepared_pdf_report_signature") == report_signature:
+            st.download_button(
+                "Download PDF Report",
+                S["prepared_pdf_report"],
+                "iris_report.pdf",
+                "application/pdf",
+                use_container_width=True,
+                type="primary",
+                key="comm_dl_pdf",
             )
-            st.download_button("Download PDF Report", pdf_bytes, "iris_report.pdf", "application/pdf",
-                               use_container_width=True, type="primary", key="comm_dl_pdf")
-        except Exception as e:
-            st.error(f"Error generating PDF: {e}")
 
     with d3:
         st.markdown("""
@@ -2340,13 +2391,22 @@ elif S["step"] == "communication":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        try:
-            csv_bytes = build_cleaned_csv(S["df"])
-            st.download_button("Download Cleaned CSV", csv_bytes, "iris_cleaned.csv", "text/csv",
-                               use_container_width=True, type="primary", key="comm_dl_csv")
-
-        except Exception as e:
-            st.error(f"Error generating CSV: {e}")
+        if st.button("Prepare Cleaned CSV", key="prepare_cleaned_csv"):
+            try:
+                S["prepared_cleaned_csv"] = build_cleaned_csv(S["df"])
+                S["prepared_cleaned_csv_signature"] = report_signature
+            except Exception as e:
+                st.error(f"Error generating CSV: {e}")
+        if S.get("prepared_cleaned_csv_signature") == report_signature:
+            st.download_button(
+                "Download Cleaned CSV",
+                S["prepared_cleaned_csv"],
+                "iris_cleaned.csv",
+                "text/csv",
+                use_container_width=True,
+                type="primary",
+                key="comm_dl_csv",
+            )
 
     st.markdown("---")
 

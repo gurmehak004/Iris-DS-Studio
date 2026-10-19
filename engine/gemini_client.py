@@ -6,12 +6,24 @@ import os
 import json
 import logging
 from google import genai
+from google.genai import types
 from typing import Dict, Any, Optional
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
 
 _GEMINI_MODEL = "gemini-3.8-flash"
+_GEMINI_TIMEOUT_MS = 15_000
+
+
+def _create_client(api_key: str) -> genai.Client:
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=_GEMINI_TIMEOUT_MS,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
 
 
 def _get_api_key() -> str:
@@ -53,10 +65,11 @@ that any model has been trained, tested, or scored. Do not invent evaluation res
 If the target or dataset information is insufficient, say so clearly.
 """
     try:
-        client = genai.Client(api_key=api_key)
+        client = _create_client(api_key)
         response = client.models.generate_content(
             model=_GEMINI_MODEL,
             contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=400),
         )
         if response.text and response.text.strip():
             return True, response.text.strip()
@@ -132,10 +145,11 @@ def _safe_generate(prompt: str, fallback_text: str = "") -> str:
         )
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = _create_client(api_key)
         response = client.models.generate_content(
             model=_GEMINI_MODEL,
             contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=512),
         )
         if response.text and response.text.strip():
             return response.text.strip()
@@ -294,18 +308,15 @@ Answer in plain English, 3-6 sentences. Be specific to their data where possible
 
 
 def generate_executive_summary(pipeline_stats: Dict[str, Any]) -> str:
-    """Generates a 300-500 word plain English executive summary narrative for Stage 5."""
+    """Generates a concise plain-English executive summary for Stage 5."""
     prompt = f"""
 You are Iris, an enterprise Data Science Lead. Write a professional executive summary for leadership based on the following pipeline execution statistics:
 
 Pipeline Stats:
 {json.dumps(pipeline_stats, indent=2)}
 
-Structure your report into:
-1. Executive Briefing
-2. Key Data Discoveries & Anomalies
-3. Cleaning & Feature Engineering Actions Taken
-4. Strategic Business Recommendations
+Write no more than 150 words. Mention only facts present in the statistics, clearly state
+that no model was trained, and give one practical next step. Use short headings.
 """
     fallback = f"""### 📄 Executive Summary Briefing
 

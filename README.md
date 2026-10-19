@@ -8,7 +8,7 @@ Iris Data Studio is a premium, AI-powered automated data science workspace. It t
 - **AI-Powered Feature Engineering:** Get smart recommendations for scaling, encoding, and date-time extractions.
 - **Interactive EDA:** High-quality, dynamic visual distributions, and Pearson correlation matrices.
 - **Machine Learning Recommendations:** Context-aware suggestions for the best ML algorithms to solve your business problem.
-- **Professional Exports:** Download an interactive HTML dashboard, a high-contrast executive PDF report, or your freshly cleaned CSV dataset.
+- **Professional Exports:** Prepare and download an interactive HTML dashboard, a high-contrast executive PDF report, or your freshly cleaned CSV dataset from the final stage.
 - **"Iris" AI Chat:** Ask questions directly about your dataset's findings.
 
 ## 💻 Tech Stack
@@ -38,7 +38,9 @@ Iris Data Studio is a premium, AI-powered automated data science workspace. It t
    GEMINI_API_KEY = "your-api-key-here"
    ```
    Save the settings and reboot the app. Use **Ask Gemini to review these models** in the
-   Communication stage to verify a Gemini response. The app never displays the key.
+   Communication stage to verify a Gemini response. Gemini explanations and the expanded
+   executive narrative run only when requested, and API calls have a 15-second timeout.
+   The app never displays the key.
    Do not ask end users to provide or paste API keys, and never commit keys. Basic dataset
    questions are answered by Iris without Gemini; the key only enables Gemini-enhanced
    open-ended responses. Failed Gemini requests fall back to built-in answers.
