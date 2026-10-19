@@ -2043,6 +2043,17 @@ elif S["step"] == "communication":
 
     df = S["df"]
     health = compute_data_health_score(df)
+    target_options = df.columns.tolist()
+    suggested_target = S.get("target_col")
+    target_index = target_options.index(suggested_target) if suggested_target in target_options else 0
+    selected_target = st.selectbox(
+        "Target feature (the value you want a model to predict)",
+        target_options,
+        index=target_index,
+        key=f"target_feature_{S.get('dataset_fingerprint') or 'active'}",
+        help="Choose the outcome you want the model recommendations to focus on.",
+    )
+    S["target_col"] = selected_target
     
     # Project Summary Dashboard KPI Grid
     render_section_header("Project Pipeline Summary", "summary")
@@ -2056,7 +2067,7 @@ elif S["step"] == "communication":
     with c4:
         render_kpi_card("Actions Executed", str(len(S.get("cleaning_log", [])) + len(S.get("transformation_log", []))), "Cleaning & FE", "#F59E0B")
     with c5:
-        render_kpi_card("Target Feature", str(S.get("target_col", "None")), "Primary Metric", "#EC4899")
+        render_kpi_card("Target Feature", str(S.get("target_col", "None")), "Selected for prediction", "#EC4899")
 
     st.markdown("<br>", unsafe_allow_html=True)
     render_section_header("Dataset Preview (Cleaned & Engineered)", "table")
