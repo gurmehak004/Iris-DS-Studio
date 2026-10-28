@@ -184,6 +184,12 @@ def apply_transformation(df: pd.DataFrame, column: str, transform_type: str, **k
         new_col = f"{column}_freq"
         new_df[new_col] = s.map(freqs).fillna(0.0)
         return new_df, f"Created frequency-encoded feature '{new_col}'"
+
+    elif transform_type == "label_encode":
+        codes, _ = pd.factorize(s.astype(str))
+        new_col = f"{column}_label"
+        new_df[new_col] = codes
+        return new_df, f"Created label-encoded (ordinal integer) feature '{new_col}'"
         
     elif transform_type == "datetime_decompose":
         dt = pd.to_datetime(s, errors="coerce")
@@ -327,33 +333,111 @@ def generate_fe_plan(df: pd.DataFrame, col_types: Dict[str, str]) -> Dict[str, A
                 skew_val = s.skew()
                 skew = float(skew_val.iloc[0]) if isinstance(skew_val, (pd.Series, np.ndarray)) else float(skew_val)
                 if abs(skew) > 1.0:
-                    plan_items.append({"col": col, "type": "Log Transform (Skew Fix)", "est_cols": 1})
+                    plan_items.append({
+                        "col": col,
+                        "type": "Log Transform (Skew Fix)",
+                        "transform_key": "log",
+                        "badge": "Skew Fix",
+                        "badge_color": "#8B5CF6",
+                        "est_cols": 1,
+                        "reason": f"Normalize asymmetric distribution (skewness = {skew:.2f})",
+                    })
                     estimated_new_cols += 1
             except Exception:
                 pass
-            plan_items.append({"col": col, "type": "Z-Score Scaling", "est_cols": 1})
+            plan_items.append({
+                "col": col,
+                "type": "Z-Score Scaling",
+                "transform_key": "standard_scale",
+                "badge": "Scale",
+                "badge_color": "#06B6D4",
+                "est_cols": 1,
+                "reason": "Standardize to mean=0, std=1 for distance/linear models",
+            })
             estimated_new_cols += 1
         elif ctype in ("categorical", "boolean"):
             try:
                 nu = s.nunique()
                 n_unique = int(nu.iloc[0]) if isinstance(nu, (pd.Series, np.ndarray)) else int(nu)
                 if n_unique == 2:
-                    plan_items.append({"col": col, "type": "Binary 0/1 Encoding", "est_cols": 1})
+                    plan_items.append({
+                        "col": col,
+                        "type": "Binary 0/1 Encoding",
+                        "transform_key": "binary_encode",
+                        "badge": "Binary",
+                        "badge_color": "#EC4899",
+                        "est_cols": 1,
+                        "reason": "Convert 2 distinct categories into numeric binary integer",
+                    })
                     estimated_new_cols += 1
                 elif n_unique <= 10:
-                    plan_items.append({"col": col, "type": f"One-Hot Encoding ({n_unique} dummy cols)", "est_cols": n_unique})
+                    plan_items.append({
+                        "col": col,
+                        "type": f"One-Hot Encoding ({n_unique} dummy cols)",
+                        "transform_key": "one_hot",
+                        "badge": "One-Hot",
+                        "badge_color": "#10B981",
+                        "est_cols": n_unique,
+                        "reason": f"Create {n_unique} indicator features for low-cardinality classes",
+                    })
                     estimated_new_cols += n_unique
+                else:
+                    plan_items.append({
+                        "col": col,
+                        "type": f"Frequency Encoding ({n_unique} categories)",
+                        "transform_key": "freq_encode",
+                        "badge": "Freq Encode",
+                        "badge_color": "#F59E0B",
+                        "est_cols": 1,
+                        "reason": "Map high-cardinality categories to occurrence proportions",
+                    })
+                    estimated_new_cols += 1
             except Exception:
                 pass
         elif ctype == "datetime":
-            plan_items.append({"col": col, "type": "Date Decomposition (Yr, Mo, Day, DoW)", "est_cols": 4})
-            estimated_new_cols += 4
+            plan_items.append({
+                "col": col,
+                "type": "Date Decomposition (Yr, Mo, Day, DoW)",
+                "transform_key": "datetime_decompose",
+                "badge": "Time",
+                "badge_color": "#F59E0B",
+                "est_cols": 5,
+                "reason": "Extract 5 calendar and weekend cyclical indicators",
+            })
+            estimated_new_cols += 5
 
     return {
         "total_planned_actions": len(plan_items),
         "estimated_new_columns": estimated_new_cols,
         "items": plan_items
     }
+
+
+def get_individual_column_options(ctype: str) -> List[Dict[str, str]]:
+    """Returns available transformation actions for a given column type."""
+    if ctype in ("categorical", "boolean"):
+        return [
+            {"key": "one_hot", "label": "One-Hot Encode", "badge": "Dummies"},
+            {"key": "binary_encode", "label": "Binary (0/1)", "badge": "Binary"},
+            {"key": "label_encode", "label": "Label Encode", "badge": "Ordinal"},
+            {"key": "freq_encode", "label": "Frequency Encode", "badge": "Frequency"},
+        ]
+    elif ctype == "numeric":
+        return [
+            {"key": "log", "label": "Log Transform", "badge": "Skew Fix"},
+            {"key": "standard_scale", "label": "Z-Score Scale", "badge": "Mean=0, Std=1"},
+            {"key": "minmax_scale", "label": "Min-Max [0,1]", "badge": "Rescale"},
+            {"key": "bin_quantiles", "label": "4-Quantile Bin", "badge": "Quartiles"},
+        ]
+    elif ctype == "datetime":
+        return [
+            {"key": "datetime_decompose", "label": "Decompose Datetime", "badge": "Year/Mo/Day"},
+        ]
+    elif ctype == "text":
+        return [
+            {"key": "text_stats", "label": "Extract Text Stats", "badge": "Len/Words"},
+        ]
+    return []
 
 
 def create_interaction_features(df: pd.DataFrame, col1: str, col2: str, operation: str = "product") -> Tuple[pd.DataFrame, str]:

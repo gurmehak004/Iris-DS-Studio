@@ -47,11 +47,11 @@ def review_model_recommendations(
 ) -> tuple[bool, str]:
     api_key = _get_api_key()
     if not api_key:
-        return False, "Gemini review was not run: no key is configured for this app."
+        return False, "Iris AI review was not run: no API key is configured for this app."
 
     prompt = f"""
-You are Iris, a practical machine-learning advisor. Review the rule-based model candidates
-for this dataset and give a concise, specific recommendation.
+You are Iris AI, an expert enterprise data science advisor. Never refer to yourself as Gemini or mention Google.
+Review the candidate models for this dataset and give a concise, practical recommendation.
 
 Dataset summary:
 {json.dumps(dataset_summary, default=str)}
@@ -59,7 +59,7 @@ Dataset summary:
 Task type and candidate models:
 {json.dumps(recommendations, default=str)}
 
-Recommend the best one or two candidates from the supplied list for this dataset, explain
+Recommend the best 1-2 candidates from the supplied list for this dataset, explain
 the trade-offs, and mention any relevant data-quality or evaluation cautions. Do not claim
 that any model has been trained, tested, or scored. Do not invent evaluation results.
 If the target or dataset information is insufficient, say so clearly.
@@ -73,66 +73,149 @@ If the target or dataset information is insufficient, say so clearly.
         )
         if response.text and response.text.strip():
             return True, response.text.strip()
-        return False, "Gemini returned an empty response; the rule-based recommendations remain available."
+        return False, "Iris AI returned an empty response; statistical recommendations remain available."
     except Exception as exc:
-        logging.warning("Gemini model recommendation review failed (%s)", type(exc).__name__)
+        logging.warning("Iris AI model review failed (%s)", type(exc).__name__)
         return False, (
-            f"Gemini review failed ({type(exc).__name__}); the rule-based recommendations "
-            "remain available. Check the app's Gemini configuration and network access."
+            f"Iris AI review unavailable ({type(exc).__name__}); statistical recommendations "
+            "remain available. Check API key configuration and network connectivity."
         )
 
 
-def _fallback_response(fallback_text: str, reason: str) -> str:
-    message = fallback_text or "Iris could not generate an AI response."
-    return f"{message}\n\n{reason}"
+def _fallback_response(fallback_text: str, reason: str = "") -> str:
+    message = fallback_text or "Iris could not generate an extended response."
+    if reason:
+        return f"{message}\n\n*{reason}*"
+    return message
 
 
 def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
     try:
         context = json.loads(dataset_context)
     except (TypeError, json.JSONDecodeError):
-        return None
+        context = {}
 
-    normalized_question = question.casefold()
-    target_terms = ("target", "predict", "outcome", "label")
-    if any(term in normalized_question for term in target_terms):
-        target = context.get("target_feature")
+    q = question.casefold().strip()
+    target = context.get("target_feature")
+    target_type = context.get("target_feature_type", "unknown")
+    stats = context.get("target_feature_statistics") or {}
+    columns = context.get("columns") or {}
+    row_count = context.get("row_count", "unknown")
+
+    # 1. Target column questions
+    if any(term in q for term in ("target", "predict", "outcome", "label", "dependent variable")):
         if not target:
             return (
-                "A target feature is the column you want a future model to predict. "
-                "There isn't a target selected in this project yet. Choose the outcome "
-                "you care about, and make sure it isn't an ID or a value calculated from "
-                "information that would not be available at prediction time."
+                "**Target Feature Overview:**\n\n"
+                "A target feature is the outcome column you want a predictive model to learn and estimate. "
+                "No target has been selected in this project yet. Please select your outcome in Stage 1 or Stage 5, "
+                "ensuring it is not an ID column or a value unavailable at inference time."
             )
-
-        target_type = context.get("target_feature_type", "unknown")
-        stats = context.get("target_feature_statistics") or {}
-        answer = (
-            f"The selected target feature is **{target}** (inferred type: {target_type}). "
-            "It is the outcome a supervised model would try to predict—not automatically "
-            "the most important or best feature. Use it if this is the outcome your "
-            "analysis is meant to explain or predict; otherwise select a different "
-            "outcome before interpreting model recommendations."
+        ans = (
+            f"**Current Target Feature:** **`{target}`** (Inferred type: *{target_type}*).\n\n"
+            f"This is the supervised learning outcome Iris is focusing on. "
         )
         if target_type == "numeric" and stats:
-            answer += (
-                f" Its observed mean is {stats.get('mean', 'unavailable')}, with values "
-                f"from {stats.get('min', 'unavailable')} to {stats.get('max', 'unavailable')}."
-            )
+            ans += f"Key metrics: Mean = {stats.get('mean', 'N/A')}, Median = {stats.get('median', 'N/A')}, Range = [{stats.get('min', 'N/A')} to {stats.get('max', 'N/A')}]."
         elif target_type in ("categorical", "boolean") and stats:
-            answer += (
-                f" It has {stats.get('unique', 'an unknown number of')} distinct values; "
-                f"the most common is '{stats.get('top_value', 'unavailable')}'."
-            )
-        return answer
+            ans += f"It has {stats.get('unique', 'N/A')} unique categories, with most frequent class being *'{stats.get('top_value', 'N/A')}'*."
+        return ans
 
-    if any(term in normalized_question for term in ("column", "feature", "field")):
-        columns = context.get("columns") or {}
+    # 2. Columns, features, dataset shape
+    if any(term in q for term in ("column", "feature", "shape", "row count", "how many rows", "dataset info", "dimension")):
         if columns:
-            column_list = ", ".join(f"{name} ({kind})" for name, kind in columns.items())
-            return f"This dataset has {context.get('row_count', 'an unknown number of')} rows. Its columns are: {column_list}."
+            col_preview = ", ".join(f"`{name}` ({kind})" for name, kind in list(columns.items())[:12])
+            suffix = f" ... and {len(columns) - 12} more" if len(columns) > 12 else ""
+            return (
+                f"**Dataset Dimensions & Features:**\n\n"
+                f"- **Total Rows:** {row_count:,} records\n"
+                f"- **Total Columns:** {len(columns)} features\n"
+                f"- **Features:** {col_preview}{suffix}."
+            )
 
-    return None
+    # 3. Missing values / nulls
+    if any(term in q for term in ("missing", "null", "nan", "impute", "empty value")):
+        return (
+            "**Handling Missing Values in Iris:**\n\n"
+            "- **Drop High-Missing Features:** Columns with >40% missing data are usually best dropped as they add noise.\n"
+            "- **Numeric Imputation:** Use Median for skewed distributions (robust to outliers) or Mean for symmetric Gaussian distributions.\n"
+            "- **Categorical Imputation:** Use Mode (most frequent category) or create a dedicated `'Missing'` category indicator to preserve information."
+        )
+
+    # 4. Outliers & IQR / Z-score
+    if any(term in q for term in ("outlier", "iqr", "zscore", "z-score", "anomaly", "cap", "trim")):
+        return (
+            "**Outlier Detection & Capping:**\n\n"
+            "- **IQR Method (Robust):** Identifies values outside `[Q1 - 1.5*IQR, Q3 + 1.5*IQR]`. Excellent for non-normal or skewed data.\n"
+            "- **Z-Score Method:** Identifies observations further than 3 standard deviations from the mean (`|Z| > 3`). Best for bell-shaped distributions.\n"
+            "- **Recommendation:** In Stage 2 (Cleaning), use **Cap / Winsorize** instead of dropping rows to preserve dataset size without distorting gradient updates."
+        )
+
+    # 5. Skewness and Log Transform
+    if any(term in q for term in ("skew", "skewed", "skewness", "log transform", "log1p", "symmetric", "bell curve")):
+        return (
+            "**Distribution Skewness & Transformations:**\n\n"
+            "- Skewness measures asymmetry. A skewness > 1.0 indicates heavy right-skew (long right tail with extreme large numbers, like Income or Prices).\n"
+            "- **Log Transformation (`log1p`):** Compresses high values and spreads low values, pulling the distribution closer to a Gaussian bell curve.\n"
+            "- **Why it matters:** Linear Regression, Logistic Regression, Neural Networks, and distance algorithms (KNN) converge much faster and perform significantly better with un-skewed inputs."
+        )
+
+    # 6. Feature Engineering & Encodings (One-Hot vs Binary vs Frequency)
+    if any(term in q for term in ("encode", "encoding", "one hot", "one-hot", "dummy", "binary encode", "frequency encode", "label encode", "scaling", "scale", "standardize")):
+        return (
+            "**Feature Engineering & Encoding Guide:**\n\n"
+            "- **One-Hot Encoding:** Creates binary 0/1 columns for each category. Best for low-cardinality nominal features (<= 10 categories, e.g. Color, Gender).\n"
+            "- **Binary / Label Encoding:** Assigns numeric ranks. Ideal for binary flags or ordinal categories (e.g. Low/Medium/High).\n"
+            "- **Frequency Encoding:** Replaces category strings with their occurrence percentage. Ideal for high-cardinality categorical features (e.g. ZipCode, City).\n"
+            "- **Standardization (Z-Score):** Scales numeric columns to `mean=0, std=1`. Crucial for Ridge, Lasso, SVM, and KNN."
+        )
+
+    # 7. Model selection and recommendations
+    if any(term in q for term in ("model", "algorithm", "random forest", "xgboost", "logistic", "linear", "recommend", "train", "classification", "regression")):
+        if target_type == "numeric":
+            return (
+                "**Model Recommendations for Continuous Target:**\n\n"
+                f"Since your target `{target or 'outcome'}` is **numeric**, this is a **Regression** problem.\n"
+                "- **Random Forest Regressor:** Excellent nonlinear baseline, resistant to outliers, handles feature interactions without scaling.\n"
+                "- **Gradient Boosting (XGBoost / LightGBM):** Top-tier accuracy on tabular datasets, highly tuned for predictive power.\n"
+                "- **Ridge / Lasso Regression:** Great for interpretable linear baselines and feature importance."
+            )
+        elif target_type in ("categorical", "boolean"):
+            return (
+                "**Model Recommendations for Categorical Target:**\n\n"
+                f"Since your target `{target or 'outcome'}` is **categorical**, this is a **Classification** problem.\n"
+                "- **Random Forest Classifier:** Strong ensemble baseline, robust against overfitting, provides instant feature importances.\n"
+                "- **XGBoost / LightGBM:** State-of-the-art accuracy for tabular classification tasks.\n"
+                "- **Logistic Regression:** Clean probabilistic baseline when scaled with standard scaling."
+            )
+        return (
+            "**Supervised Model Strategy:**\n\n"
+            "If your target is numeric continuous, use Gradient Boosting or Random Forest Regressors. "
+            "If your target represents distinct categories or classes, use Random Forest or XGBoost Classifiers. "
+            "Check Stage 5 for personalized algorithmic candidate cards."
+        )
+
+    # 8. Correlations & Bivariate relationships
+    if any(term in q for term in ("correlation", "relationship", "correlated", "pearson", "spearman", "bivariate")):
+        return (
+            "**Interpreting Correlations in Iris:**\n\n"
+            "- **Pearson r (-1 to +1):** Measures linear co-movement. Absolute values above 0.7 indicate strong correlation.\n"
+            "- **Multicollinearity:** If two independent predictors have r > 0.85, consider dropping one or combining them with PCA/ratios to avoid model variance inflation.\n"
+            "- **Target Correlation:** Features with moderate to strong correlation with your target column are your strongest candidate predictors."
+        )
+
+    # 9. General guidance / next steps
+    return (
+        f"**Iris Data Science Assistant:**\n\n"
+        f"I'm analyzing your dataset ({row_count:,} rows, {len(columns)} columns" +
+        (f", target: **`{target}`**" if target else "") + ").\n\n"
+        "Here are helpful questions you can ask me:\n"
+        "- *'Which features should I log transform?'*\n"
+        "- *'How should I handle outliers in my dataset?'*\n"
+        "- *'Should I use One-Hot or Frequency encoding?'*\n"
+        "- *'What models are recommended for my target column?'*\n"
+        "- *'Explain the difference between Pearson and Spearman correlation.'*"
+    )
 
 
 def _safe_generate(prompt: str, fallback_text: str = "") -> str:
@@ -140,8 +223,7 @@ def _safe_generate(prompt: str, fallback_text: str = "") -> str:
     if not api_key:
         return _fallback_response(
             fallback_text,
-            "This is Iris's built-in response. Gemini-enhanced responses are not enabled "
-            "for this app; no user action is needed.",
+            "Iris built-in analytical response.",
         )
 
     try:
@@ -153,13 +235,12 @@ def _safe_generate(prompt: str, fallback_text: str = "") -> str:
         )
         if response.text and response.text.strip():
             return response.text.strip()
-        raise ValueError("Gemini returned an empty response")
+        raise ValueError("Empty response received")
     except Exception as exc:
-        logging.warning("Gemini request failed (%s)", type(exc).__name__)
+        logging.warning("Iris AI request failed (%s)", type(exc).__name__)
         return _fallback_response(
             fallback_text,
-            f"Gemini could not generate a response ({type(exc).__name__}). Showing Iris's "
-            "built-in response instead; contact the app administrator if this continues.",
+            f"Iris AI extended response unavailable ({type(exc).__name__}). Showing built-in analytical response.",
         )
 
 
@@ -283,26 +364,31 @@ All model results: {json.dumps(results)}
 # ── General chat ───────────────────────────────────────────────────────────────
 
 def chat_with_iris(question: str, dataset_context: str) -> str:
+    local_answer = _answer_chat_locally(question, dataset_context)
+
     if not _get_api_key():
-        local_answer = _answer_chat_locally(question, dataset_context)
         if local_answer:
             return local_answer
+        return (
+            "I'm Iris, your data science assistant. Ask me about your columns, target feature, "
+            "missing values, skewness, feature encoding, or model recommendations."
+        )
 
     prompt = f"""
-You are Iris, a friendly expert data science assistant embedded in a data analysis tool.
-Answer the user's question clearly and helpfully. Use the dataset context provided. Reply in text;
-do not embed images, image links, or HTML.
+You are Iris AI, an elite enterprise data science advisor embedded in Iris Studio.
+Never refer to yourself as Gemini, Google, or any external AI service. Your name is Iris AI.
+Answer the user's question clearly, practically, and concisely (3-5 sentences).
+Use the dataset context provided to give data-specific insights wherever applicable.
+Do not embed images, markdown image syntax, or raw HTML.
 
 Dataset context:
 {dataset_context}
 
 User question: {question}
-
-Answer in plain English, 3-6 sentences. Be specific to their data where possible.
 """
-    fallback = (
-        "I can answer basic questions about the selected target and dataset columns here, "
-        "but I couldn't match this to one of those topics."
+    fallback = local_answer or (
+        "I'm Iris, your data science assistant. Ask me about your columns, target feature, "
+        "missing values, skewness, feature encoding, or model recommendations."
     )
     return _safe_generate(prompt, fallback)
 

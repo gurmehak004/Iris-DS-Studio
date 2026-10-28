@@ -41,11 +41,11 @@ from engine.cleaning import (
 )
 
 from engine.eda import all_column_stats, correlation_matrix, normality_test, detect_class_imbalance, generate_eda_key_findings
-from engine.eda_automation import generate_eda_chart_recommendations, build_eda_standalone_dashboard
+from engine.eda_automation import generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
 from engine.feature_engineering import (
-
     get_feature_engineering_suggestions, apply_transformation,
-    auto_engineer_all_features, generate_fe_plan, create_interaction_features, quick_feature_importance
+    auto_engineer_all_features, generate_fe_plan, create_interaction_features, quick_feature_importance,
+    get_individual_column_options
 )
 from engine.gemini_client import (
     explain_file_overview, explain_data_quality, explain_column,
@@ -911,6 +911,36 @@ with st.sidebar:
         st.markdown("<div style='border-top:1px solid rgba(255,255,255,0.05); margin:8px 8px 0;'></div>", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-section-label'>Downloads</div>", unsafe_allow_html=True)
         st.caption("Prepare and download reports in the Communication & Export stage.")
+
+    # ── Persistent Iris AI Assistant ──────────────────────────────────────────
+    st.markdown("<div style='border-top:1px solid rgba(255,255,255,0.08); margin:12px 4px 6px;'></div>", unsafe_allow_html=True)
+    with st.expander("💬 Ask Iris AI Assistant", expanded=False):
+        st.caption("Ask questions about your data, cleaning, transformations, or models anytime.")
+        if S["chat_history"]:
+            for msg in S["chat_history"][-3:]:
+                role_icon = "👤" if msg["role"] == "user" else "🌸"
+                st.markdown(f"**{role_icon} {'You' if msg['role'] == 'user' else 'Iris'}:** {msg['text']}")
+        with st.form("sidebar_chat_form", clear_on_submit=True):
+            side_q = st.text_input("Ask Iris:", placeholder="e.g. Which columns have outliers?", label_visibility="collapsed")
+            side_submit = st.form_submit_button("Send Question", use_container_width=True)
+            if side_submit and side_q:
+                S["chat_history"].append({"role": "user", "text": side_q})
+                _df = S["df"]
+                _col_types = S.get("col_types") or {}
+                _target = S.get("target_col")
+                _target_stats = (S.get("col_stats") or {}).get(_target, {}) if _target else {}
+                _ctx = json.dumps({
+                    "row_count": len(_df) if _df is not None else 0,
+                    "columns": {str(c): _col_types.get(c, "unknown") for c in (_df.columns if _df is not None else [])},
+                    "target_feature": _target,
+                    "target_feature_type": _col_types.get(_target, "unknown"),
+                    "target_feature_statistics": _target_stats,
+                    "business_goal": S.get("business_goal", ""),
+                }, default=str)
+                with st.spinner("Iris is analyzing..."):
+                    _ans = chat_with_iris(side_q, _ctx)
+                S["chat_history"].append({"role": "iris", "text": _ans})
+                st.rerun()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -1797,10 +1827,11 @@ elif S["step"] == "eda":
         st.error(f"Error generating EDA dashboard HTML: {e}")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    tab_auto_charts, tab_col_explorer, tab_corr_matrix = st.tabs([
+    tab_auto_charts, tab_col_explorer, tab_corr_matrix, tab_custom_studio = st.tabs([
         "1. Automated Recommended Charts",
         "2. Feature Deep-Dive Explorer",
-        "3. Correlation & Bivariate Matrix"
+        "3. Correlation & Bivariate Matrix",
+        "4. Interactive Custom Chart Studio (User Control)"
     ], key="eda_main_tabs", on_change="rerun")
 
     with tab_auto_charts:
@@ -1866,13 +1897,17 @@ elif S["step"] == "eda":
             s = pd.to_numeric(col_s, errors="coerce").dropna()
             plot_df = pd.DataFrame({selected_col: s})
 
-            t1, t2, t3, t4 = st.tabs(
-                ["Distribution Histogram", "Violin Plot", "Box Plot", "Outlier Strip"],
+            t1, t2, t3, t4, t5 = st.tabs(
+                ["Distribution Histogram", "Violin Plot", "Box Plot", "Outlier Strip", "Scatter vs Feature..."],
                 key=f"eda_numeric_chart_tabs_{selected_col}",
                 on_change="rerun",
             )
             with t1:
                 fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#7C3AED"], marginal="rug")
+                mean_val = s.mean()
+                med_val = s.median()
+                fig.add_vline(x=mean_val, line_dash="dash", line_color="#DB2777", annotation_text=f"Mean: {mean_val:.2f}", annotation_position="top right")
+                fig.add_vline(x=med_val, line_dash="dot", line_color="#0891B2", annotation_text=f"Median: {med_val:.2f}", annotation_position="top left")
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t2:
@@ -1892,6 +1927,20 @@ elif S["step"] == "eda":
                 fig = px.strip(tmp, y="value", color="type", color_discrete_map={"Normal":"#7C3AED", "Outlier":"#DB2777"})
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
+            with t5:
+                other_num_cols = [c for c in all_cols if c != selected_col and col_types.get(c) == "numeric"]
+                if other_num_cols:
+                    cmp_col = st.selectbox("Compare with numeric feature (Y-Axis):", other_num_cols, key=f"cmp_{selected_col}")
+                    s_cmp = pd.to_numeric(df[cmp_col], errors="coerce")
+                    pair_df = pd.DataFrame({selected_col: s, cmp_col: s_cmp}).dropna()
+                    try:
+                        fig_cmp = px.scatter(pair_df, x=selected_col, y=cmp_col, trendline="ols", color_discrete_sequence=["#7C3AED"], trendline_color_override="#0891B2")
+                    except Exception:
+                        fig_cmp = px.scatter(pair_df, x=selected_col, y=cmp_col, color_discrete_sequence=["#7C3AED"])
+                    fig_cmp.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), title=f"Scatter Trend: {selected_col} vs {cmp_col}")
+                    st.plotly_chart(fig_cmp, use_container_width=True)
+                else:
+                    st.info("No additional numerical columns available for comparison.")
 
         elif ctype in ("categorical", "boolean"):
             col_s = df[selected_col].iloc[:, 0] if isinstance(df[selected_col], pd.DataFrame) else df[selected_col]
@@ -1923,6 +1972,40 @@ elif S["step"] == "eda":
         else:
             st.info("Need at least 2 numeric features for correlation matrix.")
 
+    with tab_custom_studio:
+        render_section_header("Interactive Custom Chart Studio (User Full Access)", "chart", badge="Custom Builder", badge_color="#0891B2")
+        st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:16px;'>You have full control to generate any visualization across your dataset: customize chart types, axes, and grouping dimensions.</div>", unsafe_allow_html=True)
+
+        c_opt1, c_opt2, c_opt3, c_opt4 = st.columns([3, 3, 3, 3])
+        with c_opt1:
+            chart_kind = st.selectbox(
+                "Choose Chart Type:",
+                ["Scatter Plot", "Distribution Histogram", "Box Plot", "Violin Plot", "Line Trend Chart", "Bar Chart", "2D Density Heatmap"],
+                key="custom_chart_type"
+            )
+        with c_opt2:
+            x_feature = st.selectbox("X-Axis Feature:", all_cols, index=0, key="custom_chart_x")
+        with c_opt3:
+            y_options = ["(None / Univariate)"] + [c for c in all_cols if c != x_feature]
+            default_y_idx = 1 if len(y_options) > 1 and chart_kind in ("Scatter Plot", "Line Trend Chart", "2D Density Heatmap") else 0
+            y_feature = st.selectbox("Y-Axis Feature (optional):", y_options, index=default_y_idx, key="custom_chart_y")
+        with c_opt4:
+            color_options = ["(None)"] + all_cols
+            color_feature = st.selectbox("Color / Group By (optional):", color_options, index=0, key="custom_chart_color")
+
+        show_trendline = False
+        if chart_kind == "Scatter Plot" and y_feature != "(None / Univariate)":
+            show_trendline = st.checkbox("Include Linear OLS Trendline", value=True, key="custom_chart_trend")
+
+        y_actual = None if y_feature == "(None / Univariate)" else y_feature
+        color_actual = None if color_feature == "(None)" else color_feature
+
+        try:
+            custom_fig = build_custom_chart(df, chart_kind, x_feature, y_actual, color_actual, show_trendline)
+            st.plotly_chart(custom_fig, use_container_width=True)
+        except Exception as ex:
+            st.warning(f"Could not render chart with selected feature combinations: {ex}")
+
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Next: Feature Engineering Studio →", type="primary", use_container_width=True):
         next_step("eda")
@@ -1952,44 +2035,83 @@ elif S["step"] == "feature_engineering":
     </div>
     """, unsafe_allow_html=True)
 
-    # Per-column action preview table
-    if fe_plan["items"]:
-        fe_preview_rows = "".join([
-            f"""<tr>
-                <td style='padding:9px 14px; color:#1E293B; font-weight:700; border-bottom:1px solid #EDE9FE;'>{it['col']}</td>
-                <td style='padding:9px 14px;'>
-                    <span style='display:inline-block; background:#F3E8FF; color:#5B21B6; border:1px solid #DDD6FE;
-                                 border-radius:6px; padding:3px 10px; font-size:0.8rem; font-weight:800;'>
-                        {it['type']}
-                    </span>
-                </td>
-                <td style='padding:9px 14px; color:#0E7490; font-weight:800; text-align:center; border-bottom:1px solid #EDE9FE;'>+{it['est_cols']}</td>
-            </tr>"""
-            for it in fe_plan["items"]
-        ])
-        st.markdown(f"""
-        <div style='margin-bottom:24px; border:1px solid #DDD6FE; border-radius:8px; overflow:hidden; box-shadow:0 4px 14px rgba(76,29,149,0.06);'>
-            <table style='width:100%; border-collapse:collapse; font-size:0.88rem;'>
-                <thead>
-                    <tr style='background:#6D28D9;'>
-                        <th style='padding:10px 14px; color:#FFFFFF; text-align:left; font-weight:800;'>Column</th>
-                        <th style='padding:10px 14px; color:#FFFFFF; text-align:left; font-weight:800;'>Planned Transformation</th>
-                        <th style='padding:10px 14px; color:#FFFFFF; text-align:center; font-weight:800;'>New Cols</th>
-                    </tr>
-                </thead>
-                <tbody>{fe_preview_rows}</tbody>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
+    # Batch 1-Click Button
+    c_btn_all, c_info = st.columns([2, 3])
+    with c_btn_all:
+        if st.button("Apply All Planned Transformations (1-Click)", type="primary", key="btn_auto_fe_all", use_container_width=True):
+            new_df, explanations, summary_msg = auto_engineer_all_features(df, col_types)
+            S["df"] = new_df
+            S["col_types"] = infer_all_types(new_df)
+            S["fe_explanations"] = explanations
+            S["transformation_log"].append(summary_msg)
+            st.toast(summary_msg)
+            st.rerun()
+    with c_info:
+        st.markdown("<div style='color:#64748B; font-size:0.84rem; padding-top:8px;'>Apply all recommended transformations in batch, or use the individual buttons below to encode features one-by-one.</div>", unsafe_allow_html=True)
 
-    if st.button("Apply All Planned Feature Transformations (1-Click)", type="primary", key="btn_auto_fe_all", use_container_width=True):
-        new_df, explanations, summary_msg = auto_engineer_all_features(df, col_types)
-        S["df"] = new_df
-        S["col_types"] = infer_all_types(new_df)
-        S["fe_explanations"] = explanations
-        S["transformation_log"].append(summary_msg)
-        st.toast(summary_msg)
-        st.rerun()
+    # Individual Planned Action List with 1-click buttons
+    if fe_plan["items"]:
+        st.markdown("<div style='font-size:0.88rem; font-weight:800; color:#4C1D95; text-transform:uppercase; letter-spacing:0.06em; margin:16px 0 8px;'>Planned Feature Encodings & Transformations (Individual 1-Click Actions):</div>", unsafe_allow_html=True)
+        
+        for idx, it in enumerate(fe_plan["items"]):
+            col_name = it["col"]
+            t_key = it.get("transform_key", "standard_scale")
+            badge = it.get("badge", "Transform")
+            b_color = it.get("badge_color", "#8B5CF6")
+            
+            p_c1, p_c2, p_c3 = st.columns([3, 5, 2])
+            with p_c1:
+                st.markdown(f"**`{col_name}`**")
+                st.caption(f"{it['type']} (+{it['est_cols']} col)")
+            with p_c2:
+                st.markdown(f"<span style='background:{b_color}18; color:{b_color}; border:1px solid {b_color}44; border-radius:6px; padding:2px 8px; font-size:0.75rem; font-weight:800;'>{badge}</span> <span style='font-size:0.83rem; color:#475569;'>{it.get('reason', '')}</span>", unsafe_allow_html=True)
+            with p_c3:
+                if st.button(f"⚡ Auto-Apply", key=f"btn_ind_plan_{col_name}_{t_key}_{idx}", use_container_width=True):
+                    new_df, status_msg = apply_transformation(df, col_name, t_key)
+                    S["df"] = new_df
+                    S["col_types"] = infer_all_types(new_df)
+                    S["transformation_log"].append(status_msg)
+                    st.toast(status_msg)
+                    st.rerun()
+            st.markdown("<hr style='border-color:rgba(0,0,0,0.04); margin:4px 0 8px;'>", unsafe_allow_html=True)
+
+    # ── Individual Feature Encoding & Transformation Lab (User Full Access) ──────
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_section_header("Individual Feature Encoding & Transformation Lab (Full User Access)", "encode", badge="User Control", badge_color="#10B981")
+    st.markdown("<div style='color:#475569; font-size:0.88rem; margin-bottom:14px;'>Directly encode or transform any individual column in your dataset with a single click.</div>", unsafe_allow_html=True)
+
+    fe_col_left, fe_col_right = st.columns([3, 5])
+    with fe_col_left:
+        target_col_to_encode = st.selectbox("Select column to encode/transform:", df.columns.tolist(), key="select_ind_fe_col")
+        cur_ctype = col_types.get(target_col_to_encode, "unknown")
+        st.markdown(f"**Type:** `{cur_ctype}` | **Nulls:** `{int(df[target_col_to_encode].isnull().sum())}` | **Unique:** `{int(df[target_col_to_encode].nunique())}`")
+
+    with fe_col_right:
+        st.markdown("**Available 1-Click Transformations:**")
+        action_options = get_individual_column_options(cur_ctype)
+        
+        if action_options:
+            cols_btn = st.columns(len(action_options))
+            for i, act in enumerate(action_options):
+                with cols_btn[i]:
+                    if st.button(f"⚡ {act['label']}", key=f"quick_act_{target_col_to_encode}_{act['key']}", use_container_width=True, help=act.get("badge")):
+                        new_df, status_msg = apply_transformation(df, target_col_to_encode, act["key"])
+                        S["df"] = new_df
+                        S["col_types"] = infer_all_types(new_df)
+                        S["transformation_log"].append(status_msg)
+                        st.toast(status_msg)
+                        st.rerun()
+        else:
+            st.info("No automatic encoding actions defined for this data type.")
+
+        # Drop feature button
+        if st.button(f"🗑️ Drop Column '{target_col_to_encode}'", key=f"btn_drop_ind_{target_col_to_encode}"):
+            new_df, status_msg = apply_transformation(df, target_col_to_encode, "drop")
+            S["df"] = new_df
+            S["col_types"] = infer_all_types(new_df)
+            S["transformation_log"].append(status_msg)
+            st.toast(status_msg)
+            st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("Interaction Feature Builder", expanded=False):
@@ -2182,12 +2304,12 @@ elif S["step"] == "communication":
         S["executive_summary_signature"] = pipeline_signature
     gemini_configured = is_gemini_api_key_configured()
     if gemini_configured and st.button(
-        "Ask Gemini to write an executive narrative", key="gemini_executive_summary"
+        "Ask Iris AI to write an executive narrative", key="gemini_executive_summary"
     ):
-        with st.spinner("Gemini is writing the executive narrative..."):
+        with st.spinner("Iris AI is writing the executive narrative..."):
             S["executive_summary_text"] = generate_executive_summary(pipeline_stats)
     elif not gemini_configured:
-        st.caption("Showing an instant built-in summary. Gemini is not configured for this app.")
+        st.caption("Showing an instant built-in analytical summary.")
     exec_summary_text = S["executive_summary_text"]
     with st.expander("Executive Summary", expanded=True):
         st.markdown(exec_summary_text)
@@ -2225,13 +2347,13 @@ elif S["step"] == "communication":
         ).encode("utf-8")
     ).hexdigest()
 
-    st.markdown("#### Gemini model recommendation review")
+    st.markdown("#### Iris AI Model Recommendation Review")
     st.caption(
-        "The cards below are generated by Iris's built-in rules. Ask Gemini to review "
-        "and rank those candidate models using this dataset summary."
+        "The cards below are generated by Iris's statistical engine. Ask Iris AI to review "
+        "and provide strategic trade-off analysis using this dataset summary."
     )
-    if st.button("Ask Gemini to review these models", key="gemini_review_models"):
-        with st.spinner("Gemini is reviewing the candidate models..."):
+    if st.button("Ask Iris AI to review these models", key="gemini_review_models"):
+        with st.spinner("Iris AI is reviewing the candidate models..."):
             review_succeeded, review_text = review_model_recommendations(
                 ml_recs, recommendation_context
             )
@@ -2244,15 +2366,14 @@ elif S["step"] == "communication":
     recommendation_review = st.session_state.get("ml_recommendation_review")
     if recommendation_review and recommendation_review.get("signature") == recommendation_signature:
         if recommendation_review["succeeded"]:
-            st.success("Gemini-generated review")
+            st.success("Iris AI Strategic Review")
             st.markdown(recommendation_review["text"])
         else:
             st.info(recommendation_review["text"])
-            st.caption("The model cards below are still rule-based, not Gemini-generated.")
+            st.caption("The candidate models below are algorithmically generated by Iris's statistical engine.")
     elif not is_gemini_api_key_configured():
         st.info(
-            "Gemini is not configured for this app, so no AI review is available. "
-            "The model cards below are rule-based."
+            "Iris AI key is not configured for this environment; showing rule-based recommendations."
         )
 
     # Task type banner

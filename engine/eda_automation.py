@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import datetime
 from engine.viz import sanitize_fig_for_html
 
@@ -56,7 +56,7 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
     datetime_cols= [c for c, t in col_types.items() if t == "datetime" and c in df.columns]
     text_cols    = [c for c, t in col_types.items() if t == "text" and c in df.columns]
 
-    # 1. UNIVARIATE NUMERIC DISTRIBUTIONS
+    # 1. UNIVARIATE NUMERIC DISTRIBUTIONS & INDIVIDUAL BOXPLOTS
     for col in numeric_cols:
         col_s = df[col].iloc[:, 0] if isinstance(df[col], pd.DataFrame) else df[col]
         s = pd.to_numeric(col_s, errors="coerce").dropna()
@@ -68,14 +68,21 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
         med_v = stats.get("median", s.median())
 
         plot_df = pd.DataFrame({col: s})
+        
+        # 1a. Histogram with Central Tendency Reference Lines & Rug
         fig = px.histogram(plot_df, x=col, nbins=35, marginal="rug", color_discrete_sequence=[PURPLE])
-        _styled_fig(fig, f"Distribution Histogram — {col}")
+        try:
+            fig.add_vline(x=float(mean_v), line_dash="dash", line_color=PINK, annotation_text=f"Mean {float(mean_v):.2f}", annotation_position="top right")
+            fig.add_vline(x=float(med_v), line_dash="dot", line_color=CYAN, annotation_text=f"Median {float(med_v):.2f}", annotation_position="top left")
+        except Exception:
+            pass
+        _styled_fig(fig, f"Distribution Histogram & Central Tendency — {col}")
 
-        why_text = f"Analyzes the central tendency (mean={mean_v:.2f}, median={med_v:.2f}) and distribution spread. "
+        why_text = f"Analyzes central tendency (mean={mean_v:.2f}, median={med_v:.2f}) and distribution spread. "
         if abs(skew) > 1.0:
-            why_text += f"Highlight: Significant skewness ({skew:.2f}) indicates an asymmetrical distribution requiring log transformation."
+            why_text += f"Highlight: Significant skewness ({skew:.2f}) indicates an asymmetrical tail requiring transformation."
         else:
-            why_text += f"Highlight: Relatively symmetric distribution (skewness = {skew:.2f})."
+            why_text += f"Highlight: Relatively balanced symmetric distribution (skewness = {skew:.2f})."
 
         recommendations.append({
             "id": f"num_dist_{col}",
@@ -87,7 +94,20 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             "fig": fig
         })
 
-    # 2. NUMERIC BOXPLOTS & OUTLIER STRIPS
+        # 1b. Individual Outlier Boxplot for each numeric column
+        fig_ind_box = px.box(plot_df, y=col, points="outliers", color_discrete_sequence=[CYAN])
+        _styled_fig(fig_ind_box, f"Outlier & Spread Boxplot — {col}")
+        recommendations.append({
+            "id": f"num_box_{col}",
+            "title": f"Spread & Quartiles — {col}",
+            "chart_type": "Box Plot with Outliers",
+            "columns": [col],
+            "category": "Univariate Numeric",
+            "why": f"Identifies IQR spread, median ({med_v:.2f}), and anomalies lying beyond 1.5x IQR boundaries.",
+            "fig": fig_ind_box
+        })
+
+    # 2. NUMERIC BOXPLOTS & OUTLIER STRIPS (COMPARATIVE)
     if len(numeric_cols) >= 2:
         try:
             num_sub = df[numeric_cols].loc[:, ~df[numeric_cols].columns.duplicated()]
@@ -151,10 +171,26 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
         except Exception:
             pass
 
-    # 5. BIVARIATE SCATTER PLOTS WITH TRENDLINES
+    # 5. BIVARIATE SCATTER PLOTS WITH TRENDLINES (NUMERIC vs NUMERIC)
+    # Ensure scatter plots are ALWAYS created when 2+ numeric columns exist!
+    pairs_to_plot = []
     top_pairs = corr_res.get("top_pairs", [])
-    for pair in top_pairs[:3]:
-        c1, c2, r_val = pair["col1"], pair["col2"], pair["pearson_r"]
+    for p in top_pairs[:6]:
+        pairs_to_plot.append((p["col1"], p["col2"], p.get("pearson_r", 0.0)))
+
+    # If top_pairs has fewer than 2 items, add sequential pairs from numeric_cols
+    if len(pairs_to_plot) < 2 and len(numeric_cols) >= 2:
+        for i in range(len(numeric_cols)):
+            for j in range(i + 1, min(len(numeric_cols), i + 3)):
+                c1, c2 = numeric_cols[i], numeric_cols[j]
+                if not any((c1 == p[0] and c2 == p[1]) or (c1 == p[1] and c2 == p[0]) for p in pairs_to_plot):
+                    pairs_to_plot.append((c1, c2, 0.0))
+                if len(pairs_to_plot) >= 4:
+                    break
+            if len(pairs_to_plot) >= 4:
+                break
+
+    for c1, c2, r_val in pairs_to_plot:
         try:
             s1 = df[c1].iloc[:, 0] if isinstance(df[c1], pd.DataFrame) else df[c1]
             s2 = df[c2].iloc[:, 0] if isinstance(df[c2], pd.DataFrame) else df[c2]
@@ -165,19 +201,41 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             except Exception:
                 fig_sc = px.scatter(sc_df, x=c1, y=c2, color_discrete_sequence=[PURPLE])
 
-            _styled_fig(fig_sc, f"Bivariate Relationship: {c1} vs {c2} (r = {r_val:.3f})")
-            why_text = f"Plots feature interaction between '{c1}' and '{c2}'. Pearson correlation coefficient r = {r_val:.3f}. "
-            why_text += f"Reveals direction and strength of dependency."
+            title_r = f" (r = {r_val:.3f})" if r_val != 0.0 else ""
+            _styled_fig(fig_sc, f"Bivariate Scatter: {c1} vs {c2}{title_r}")
+            why_text = f"Analyzes continuous joint distribution and linearity between '{c1}' and '{c2}'."
+            if r_val != 0.0:
+                why_text += f" Pearson correlation coefficient r = {r_val:.3f} indicates {'positive' if r_val > 0 else 'negative'} co-movement."
 
             recommendations.append({
                 "id": f"sc_{c1}_{c2}",
-                "title": f"Bivariate Trend — {c1} vs {c2}",
-                "chart_type": "Scatter Plot",
+                "title": f"Bivariate Scatter — {c1} vs {c2}",
+                "chart_type": "Scatter Plot with Trendline",
                 "columns": [c1, c2],
                 "category": "Bivariate Relationships",
                 "why": why_text,
                 "fig": fig_sc
             })
+        except Exception:
+            pass
+
+    # 5b. SCATTER MATRIX (SPLOM) FOR NUMERICAL DATASETS
+    if len(numeric_cols) >= 3:
+        try:
+            splom_cols = numeric_cols[:4]
+            splom_df = df[splom_cols].apply(pd.to_numeric, errors="coerce").dropna()
+            if len(splom_df) > 5:
+                fig_splom = px.scatter_matrix(splom_df, dimensions=splom_cols, color_discrete_sequence=[PURPLE])
+                _styled_fig(fig_splom, "Pairwise Scatter Matrix (SPLOM)")
+                recommendations.append({
+                    "id": "scatter_matrix_splom",
+                    "title": "Pairwise Scatter Matrix (Pairplot)",
+                    "chart_type": "Scatter Matrix (SPLOM)",
+                    "columns": splom_cols,
+                    "category": "Multivariate Relationships",
+                    "why": f"Simultaneously examines pairwise scatter plots and diagonal distributions across {len(splom_cols)} numerical features in one unified grid.",
+                    "fig": fig_splom
+                })
         except Exception:
             pass
 
@@ -387,6 +445,68 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             pass
 
     return recommendations
+
+
+def build_custom_chart(
+    df: pd.DataFrame,
+    chart_type: str,
+    x_col: str,
+    y_col: Optional[str] = None,
+    color_col: Optional[str] = None,
+    trendline: bool = False,
+) -> go.Figure:
+    """Builds an interactive customized chart based on user parameter choices."""
+    sub_df = df.copy()
+    cols_needed = [x_col]
+    if y_col and y_col != x_col and y_col in sub_df.columns:
+        cols_needed.append(y_col)
+    if color_col and color_col not in cols_needed and color_col in sub_df.columns:
+        cols_needed.append(color_col)
+
+    sub_df = sub_df[cols_needed].dropna()
+
+    title_text = f"{chart_type}: {x_col}"
+    if y_col and y_col != x_col:
+        title_text += f" vs {y_col}"
+    if color_col:
+        title_text += f" (Color: {color_col})"
+
+    if chart_type == "Scatter Plot":
+        use_trend = "ols" if (trendline and y_col and y_col != x_col and pd.api.types.is_numeric_dtype(sub_df[x_col]) and pd.api.types.is_numeric_dtype(sub_df[y_col])) else None
+        try:
+            fig = px.scatter(sub_df, x=x_col, y=y_col if y_col else x_col, color=color_col, trendline=use_trend, color_discrete_sequence=PALETTE)
+        except Exception:
+            fig = px.scatter(sub_df, x=x_col, y=y_col if y_col else x_col, color=color_col, color_discrete_sequence=PALETTE)
+
+    elif chart_type == "Distribution Histogram":
+        fig = px.histogram(sub_df, x=x_col, color=color_col, marginal="rug", nbins=40, color_discrete_sequence=PALETTE)
+
+    elif chart_type == "Box Plot":
+        fig = px.box(sub_df, x=color_col if color_col else None, y=y_col if y_col else x_col, color=color_col, points="outliers", color_discrete_sequence=PALETTE)
+
+    elif chart_type == "Violin Plot":
+        fig = px.violin(sub_df, x=color_col if color_col else None, y=y_col if y_col else x_col, color=color_col, box=True, points="outliers", color_discrete_sequence=PALETTE)
+
+    elif chart_type == "Line Trend Chart":
+        sort_df = sub_df.sort_values(x_col)
+        fig = px.line(sort_df, x=x_col, y=y_col if y_col else x_col, color=color_col, color_discrete_sequence=PALETTE)
+
+    elif chart_type == "Bar Chart":
+        if y_col and y_col != x_col:
+            grouped = sub_df.groupby([x_col] + ([color_col] if color_col else []))[y_col].mean().reset_index()
+            fig = px.bar(grouped, x=x_col, y=y_col, color=color_col, color_discrete_sequence=PALETTE)
+        else:
+            vc = sub_df[x_col].value_counts().head(20).reset_index()
+            vc.columns = [x_col, "Count"]
+            fig = px.bar(vc, x=x_col, y="Count", color="Count", color_continuous_scale="Purples")
+
+    elif chart_type == "2D Density Heatmap":
+        fig = px.density_heatmap(sub_df, x=x_col, y=y_col if y_col else x_col, nbinsx=30, nbinsy=30, color_continuous_scale="Viridis")
+
+    else:
+        fig = px.scatter(sub_df, x=x_col, y=y_col if y_col else x_col, color=color_col, color_discrete_sequence=PALETTE)
+
+    return _styled_fig(fig, title_text)
 
 
 def build_eda_standalone_dashboard(df: pd.DataFrame, col_types: Dict[str, str], col_stats: Dict[str, Any], corr_res: Dict[str, Any], recommendations: List[Dict[str, Any]]) -> str:
