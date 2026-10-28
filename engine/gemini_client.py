@@ -77,7 +77,7 @@ If the target or dataset information is insufficient, say so clearly.
     except Exception as exc:
         logging.warning("Iris AI model review failed (%s)", type(exc).__name__)
         return False, (
-            f"Iris AI review unavailable ({type(exc).__name__}); statistical recommendations "
+            "Iris AI review is temporarily unavailable; statistical recommendations "
             "remain available. Check API key configuration and network connectivity."
         )
 
@@ -102,7 +102,64 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
     columns = context.get("columns") or {}
     row_count = context.get("row_count", "unknown")
 
-    # 1. Target column questions
+    # Helper counts
+    num_cols = sum(1 for t in columns.values() if t == "numeric") if isinstance(columns, dict) else 0
+    cat_cols = sum(1 for t in columns.values() if t in ("categorical", "boolean", "text")) if isinstance(columns, dict) else 0
+    total_cols = len(columns) if isinstance(columns, dict) else 0
+
+    # 1. Dataset Profile / Overview / "Tell about data" / Shape / Dimensions
+    data_overview_terms = (
+        "about data", "about the data", "tell about", "tell me about",
+        "overview", "summary", "describe data", "profile", "what is this data",
+        "dataset summary", "data details", "understand data", "explain data",
+        "data info", "dataset info", "shape", "dimension", "row count", "how many rows",
+        "column", "feature"
+    )
+    if any(term in q for term in data_overview_terms) or q in ("data", "dataset", "info", "overview"):
+        lines = []
+        lines.append("### 📊 Dataset Profile & Structural Overview\n")
+        lines.append(f"- **Scale:** **{row_count:,} rows** × **{total_cols} columns / features**.")
+        lines.append(f"- **Feature Breakdown:** **{num_cols}** numeric features, **{cat_cols}** categorical / text features.")
+
+        # High dimensionality warning (p ≈ n or p >= n * 0.4)
+        if isinstance(row_count, (int, float)) and row_count > 0 and total_cols > 0:
+            if total_cols >= row_count * 0.4 or (total_cols >= 40 and row_count <= 250):
+                lines.append(
+                    f"\n⚠️ **High-Dimensionality Warning ($p \\approx n$):** You have {total_cols} features for only {row_count} observations. "
+                    "When the feature count approaches the sample size, standard algorithms face the *curse of dimensionality* and severe overfitting risk. "
+                    "**Recommended Strategy:** In Stage 4 (Feature Engineering), prioritize feature selection—drop low-variance features and redundant correlated columns. "
+                    "In Stage 5, favor regularized models (L1 Lasso, Random Forest with constrained `max_depth` and cross-validation) rather than complex unconstrained models."
+                )
+
+        if target:
+            lines.append(f"\n🎯 **Target Variable:** **`{target}`** (Inferred Type: *{target_type.title()}*)")
+            if target_type in ("categorical", "boolean"):
+                unique_c = stats.get('unique', 'multiple')
+                top_v = stats.get('top_value', 'N/A')
+                lines.append(
+                    f"- **Task Type:** **Multiclass / Categorical Classification** ({unique_c} unique categories, top class: *'{top_v}'*).\n"
+                    "- **Objective:** Train classifiers to accurately map respondent survey attributes to their preferred career field."
+                )
+            elif target_type == "numeric":
+                lines.append(
+                    f"- **Task Type:** **Supervised Regression**.\n"
+                    f"- **Objective:** Estimate continuous numerical values (Mean: {stats.get('mean', 'N/A')}, Median: {stats.get('median', 'N/A')})."
+                )
+        else:
+            lines.append("\n🎯 **Target Variable:** Not selected yet. Choose a target column in Stage 1 or Stage 5 to unlock predictive modeling.")
+
+        if columns:
+            preview_cols = [f"`{col}` ({k})" for col, k in list(columns.items())[:10]]
+            suffix = f" *(+ {total_cols - 10} more)*" if total_cols > 10 else ""
+            lines.append(f"\n**Sample Features:** {', '.join(preview_cols)}{suffix}")
+
+        lines.append(
+            "\n💡 **Next Step in Iris:** Review data quality in **Stage 2 (Cleaning)** to verify missing values and duplicate rows, "
+            "then proceed to **Stage 3 (Distributions)** to examine distributions and correlations."
+        )
+        return "\n".join(lines)
+
+    # 2. Target column questions
     if any(term in q for term in ("target", "predict", "outcome", "label", "dependent variable")):
         if not target:
             return (
@@ -120,18 +177,6 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
         elif target_type in ("categorical", "boolean") and stats:
             ans += f"It has {stats.get('unique', 'N/A')} unique categories, with most frequent class being *'{stats.get('top_value', 'N/A')}'*."
         return ans
-
-    # 2. Columns, features, dataset shape
-    if any(term in q for term in ("column", "feature", "shape", "row count", "how many rows", "dataset info", "dimension")):
-        if columns:
-            col_preview = ", ".join(f"`{name}` ({kind})" for name, kind in list(columns.items())[:12])
-            suffix = f" ... and {len(columns) - 12} more" if len(columns) > 12 else ""
-            return (
-                f"**Dataset Dimensions & Features:**\n\n"
-                f"- **Total Rows:** {row_count:,} records\n"
-                f"- **Total Columns:** {len(columns)} features\n"
-                f"- **Features:** {col_preview}{suffix}."
-            )
 
     # 3. Missing values / nulls
     if any(term in q for term in ("missing", "null", "nan", "impute", "empty value")):
@@ -207,9 +252,10 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
     # 9. General guidance / next steps
     return (
         f"**Iris Data Science Assistant:**\n\n"
-        f"I'm analyzing your dataset ({row_count:,} rows, {len(columns)} columns" +
+        f"I'm analyzing your dataset ({row_count:,} rows, {total_cols} columns" +
         (f", target: **`{target}`**" if target else "") + ").\n\n"
         "Here are helpful questions you can ask me:\n"
+        "- *'Tell me about the data'* or *'Overview of dataset'*\n"
         "- *'Which features should I log transform?'*\n"
         "- *'How should I handle outliers in my dataset?'*\n"
         "- *'Should I use One-Hot or Frequency encoding?'*\n"
@@ -221,10 +267,7 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
 def _safe_generate(prompt: str, fallback_text: str = "") -> str:
     api_key = _get_api_key()
     if not api_key:
-        return _fallback_response(
-            fallback_text,
-            "Iris built-in analytical response.",
-        )
+        return fallback_text or "Iris built-in analytical response."
 
     try:
         client = _create_client(api_key)
@@ -238,10 +281,7 @@ def _safe_generate(prompt: str, fallback_text: str = "") -> str:
         raise ValueError("Empty response received")
     except Exception as exc:
         logging.warning("Iris AI request failed (%s)", type(exc).__name__)
-        return _fallback_response(
-            fallback_text,
-            f"Iris AI extended response unavailable ({type(exc).__name__}). Showing built-in analytical response.",
-        )
+        return fallback_text or "Iris AI response unavailable. Showing built-in analytical response."
 
 
 
