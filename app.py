@@ -17,49 +17,89 @@ import re
 import plotly.express as px
 import plotly.graph_objects as go
 
-from engine.parser import get_excel_sheet_names, load_csv, load_excel, load_google_sheet
-from engine.type_inference import infer_all_types, get_columns_by_type
-from engine.quality import full_quality_report
-from engine.eda import all_column_stats, correlation_matrix
-from engine.viz import (
-    histogram_kde, box_plot, bar_chart, missing_heatmap,
-    correlation_heatmap, scatter_with_regression, grouped_box,
-    outlier_strip
-)
-from engine.exporter import build_pdf_report, build_cleaned_csv
-from engine.html_exporter import build_html_dashboard
-from engine.business import DOMAINS, OBJECTIVES, get_domain_templates, get_objective_configs, suggest_target_column
-from engine.cleaning import (
-    impute_missing, drop_sparse_columns, remove_duplicates,
-    treat_outliers_iqr, treat_outliers_zscore, clean_structural_errors,
-    convert_column_type, encode_categorical, scale_feature,
-    drop_constant_features, drop_high_correlation_features,
-    get_encoding_suggestions, auto_encode_all_categorical,
-    get_scaling_suggestions, auto_scale_all_numeric,
-    detect_cleaning_recommendations, compute_data_health_score, get_before_after_stats,
-    detect_structural_errors
-)
+import sys
+import importlib
+from pathlib import Path
 
-from engine.eda import all_column_stats, correlation_matrix, normality_test, detect_class_imbalance, generate_eda_key_findings
-from engine.eda_automation import generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
-from engine.feature_engineering import (
-    get_feature_engineering_suggestions, apply_transformation,
-    auto_engineer_all_features, generate_fe_plan, create_interaction_features, quick_feature_importance,
-    get_individual_column_options
-)
-from engine.gemini_client import (
-    explain_file_overview, explain_data_quality, explain_column,
-    explain_correlations, chat_with_iris, generate_executive_summary, generate_stage_insights,
-    is_gemini_api_key_configured, review_model_recommendations
-)
-from engine.ml_recommender import recommend_ml_models
-from ui.styles import inject_custom_css
-from ui.components import (
-    render_kpi_card, render_iris_says, render_stage_header,
-    render_health_scorecard, render_recommendation_card,
-    render_data_preview_table, render_styled_dataframe, render_section_header, ICONS,
-    scroll_to_top
-)
+# Ensure application root directory is firmly at the beginning of sys.path
+_APP_ROOT = str(Path(__file__).resolve().parent)
+if _APP_ROOT not in sys.path:
+    sys.path.insert(0, _APP_ROOT)
+
+importlib.invalidate_caches()
+
+def _load_application_modules():
+    global get_excel_sheet_names, load_csv, load_excel, load_google_sheet
+    global infer_all_types, get_columns_by_type, full_quality_report
+    global all_column_stats, correlation_matrix, normality_test, detect_class_imbalance, generate_eda_key_findings
+    global histogram_kde, box_plot, bar_chart, missing_heatmap, correlation_heatmap, scatter_with_regression, grouped_box, outlier_strip
+    global build_pdf_report, build_cleaned_csv, build_html_dashboard
+    global DOMAINS, OBJECTIVES, get_domain_templates, get_objective_configs, suggest_target_column
+    global impute_missing, drop_sparse_columns, remove_duplicates, treat_outliers_iqr, treat_outliers_zscore
+    global clean_structural_errors, convert_column_type, encode_categorical, scale_feature
+    global drop_constant_features, drop_high_correlation_features, get_encoding_suggestions, auto_encode_all_categorical
+    global get_scaling_suggestions, auto_scale_all_numeric, detect_cleaning_recommendations, compute_data_health_score
+    global get_before_after_stats, detect_structural_errors
+    global generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
+    global get_feature_engineering_suggestions, apply_transformation, auto_engineer_all_features, generate_fe_plan
+    global create_interaction_features, quick_feature_importance, get_individual_column_options
+    global explain_file_overview, explain_data_quality, explain_column, explain_correlations, chat_with_iris
+    global generate_executive_summary, generate_stage_insights, is_gemini_api_key_configured, review_model_recommendations
+    global recommend_ml_models, inject_custom_css
+    global render_kpi_card, render_iris_says, render_stage_header, render_health_scorecard, render_recommendation_card
+    global render_data_preview_table, render_styled_dataframe, render_section_header, ICONS, scroll_to_top
+
+    from engine.parser import get_excel_sheet_names, load_csv, load_excel, load_google_sheet
+    from engine.type_inference import infer_all_types, get_columns_by_type
+    from engine.quality import full_quality_report
+    from engine.eda import all_column_stats, correlation_matrix, normality_test, detect_class_imbalance, generate_eda_key_findings
+    from engine.viz import (
+        histogram_kde, box_plot, bar_chart, missing_heatmap,
+        correlation_heatmap, scatter_with_regression, grouped_box,
+        outlier_strip
+    )
+    from engine.exporter import build_pdf_report, build_cleaned_csv
+    from engine.html_exporter import build_html_dashboard
+    from engine.business import DOMAINS, OBJECTIVES, get_domain_templates, get_objective_configs, suggest_target_column
+    from engine.cleaning import (
+        impute_missing, drop_sparse_columns, remove_duplicates,
+        treat_outliers_iqr, treat_outliers_zscore, clean_structural_errors,
+        convert_column_type, encode_categorical, scale_feature,
+        drop_constant_features, drop_high_correlation_features,
+        get_encoding_suggestions, auto_encode_all_categorical,
+        get_scaling_suggestions, auto_scale_all_numeric,
+        detect_cleaning_recommendations, compute_data_health_score, get_before_after_stats,
+        detect_structural_errors
+    )
+    from engine.eda_automation import generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
+    from engine.feature_engineering import (
+        get_feature_engineering_suggestions, apply_transformation,
+        auto_engineer_all_features, generate_fe_plan, create_interaction_features, quick_feature_importance,
+        get_individual_column_options
+    )
+    from engine.gemini_client import (
+        explain_file_overview, explain_data_quality, explain_column,
+        explain_correlations, chat_with_iris, generate_executive_summary, generate_stage_insights,
+        is_gemini_api_key_configured, review_model_recommendations
+    )
+    from engine.ml_recommender import recommend_ml_models
+    from ui.styles import inject_custom_css
+    from ui.components import (
+        render_kpi_card, render_iris_says, render_stage_header,
+        render_health_scorecard, render_recommendation_card,
+        render_data_preview_table, render_styled_dataframe, render_section_header, ICONS,
+        scroll_to_top
+    )
+
+try:
+    _load_application_modules()
+except KeyError:
+    # Handle Python 3.12 / Streamlit hot-reload race condition where sys.modules cache is corrupted
+    importlib.invalidate_caches()
+    for m in list(sys.modules.keys()):
+        if m.startswith("engine") or m.startswith("ui"):
+            sys.modules.pop(m, None)
+    _load_application_modules()
 
 
 
