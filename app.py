@@ -1905,7 +1905,7 @@ elif S["step"] == "eda":
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            st.plotly_chart(rec["fig"], use_container_width=True)
+                            st.plotly_chart(rec["fig"], use_container_width=True, config={"displayModeBar": "hover", "displaylogo": False})
                             
                             st.markdown(f"""
                             <div class="why-card" style="font-size:0.84rem; padding:14px 18px; margin-bottom:32px; background:#F8FAFC; border:1px solid #E2E8F0; border-left:3px solid #0891B2; border-radius:0 10px 10px 0; color:#334155;">
@@ -1946,10 +1946,22 @@ elif S["step"] == "eda":
                 fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#7C3AED"], marginal="rug")
                 mean_val = s.mean()
                 med_val = s.median()
-                fig.add_vline(x=mean_val, line_dash="dash", line_color="#DB2777", annotation_text=f"Mean: {mean_val:.2f}", annotation_position="top right")
-                fig.add_vline(x=med_val, line_dash="dot", line_color="#0891B2", annotation_text=f"Median: {med_val:.2f}", annotation_position="top left")
-                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
-                st.plotly_chart(fig, use_container_width=True)
+                fig.add_vline(x=float(mean_val), line_dash="dash", line_color="#DB2777", line_width=2)
+                fig.add_vline(x=float(med_val), line_dash="dot", line_color="#0891B2", line_width=2)
+                fig.add_annotation(
+                    text=f"<span style='color:#DB2777; font-weight:bold;'>■ Mean:</span> {float(mean_val):.2f} &nbsp;|&nbsp; <span style='color:#0891B2; font-weight:bold;'>● Median:</span> {float(med_val):.2f}",
+                    xref="paper", yref="paper",
+                    x=0.98, y=1.02,
+                    xanchor="right", yanchor="bottom",
+                    showarrow=False,
+                    font=dict(size=11, color="#334155", family="Inter, sans-serif"),
+                    bgcolor="rgba(241, 245, 249, 0.95)",
+                    bordercolor="#CBD5E1",
+                    borderwidth=1,
+                    borderpad=4
+                )
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), margin=dict(t=50, b=40, l=45, r=25))
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": "hover", "displaylogo": False})
             with t2:
                 fig = px.violin(plot_df, y=selected_col, box=True, points="outliers", color_discrete_sequence=["#0891B2"])
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))

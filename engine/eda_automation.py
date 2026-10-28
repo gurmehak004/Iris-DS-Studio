@@ -39,7 +39,21 @@ LAYOUT_DEFAULTS = dict(
 def _styled_fig(fig, title: str = ""):
     fig.update_layout(**LAYOUT_DEFAULTS)
     if title:
-        fig.update_layout(title=dict(text=title, font=dict(size=15, color=PURPLE, family="Inter, sans-serif")))
+        # Shorten title so it never stretches across or collides with top modebar buttons
+        short_title = title if len(title) <= 42 else title[:39] + "..."
+        fig.update_layout(
+            title=dict(
+                text=short_title,
+                font=dict(size=13, color=PURPLE, family="Inter, sans-serif"),
+                x=0.02,
+                y=0.98,
+                xanchor="left",
+                yanchor="top"
+            ),
+            margin=dict(l=45, r=25, t=65, b=45)
+        )
+    else:
+        fig.update_layout(margin=dict(l=45, r=25, t=35, b=45))
     fig.update_xaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0", tickfont=dict(color="#475569", size=11))
     fig.update_yaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0", tickfont=dict(color="#475569", size=11))
     if any(getattr(t, "type", None) == "parcoords" for t in fig.data):
@@ -69,14 +83,26 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
 
         plot_df = pd.DataFrame({col: s})
         
-        # 1a. Histogram with Central Tendency Reference Lines & Rug
+        # 1a. Histogram with Central Tendency Reference Lines & Rug (no duplicate/colliding text)
         fig = px.histogram(plot_df, x=col, nbins=35, marginal="rug", color_discrete_sequence=[PURPLE])
         try:
-            fig.add_vline(x=float(mean_v), line_dash="dash", line_color=PINK, annotation_text=f"Mean {float(mean_v):.2f}", annotation_position="top right")
-            fig.add_vline(x=float(med_v), line_dash="dot", line_color=CYAN, annotation_text=f"Median {float(med_v):.2f}", annotation_position="top left")
+            fig.add_vline(x=float(mean_v), line_dash="dash", line_color=PINK, line_width=2)
+            fig.add_vline(x=float(med_v), line_dash="dot", line_color=CYAN, line_width=2)
+            fig.add_annotation(
+                text=f"<span style='color:{PINK}; font-weight:bold;'>■ Mean:</span> {float(mean_v):.2f} &nbsp;|&nbsp; <span style='color:{CYAN}; font-weight:bold;'>● Median:</span> {float(med_v):.2f}",
+                xref="paper", yref="paper",
+                x=0.98, y=1.02,
+                xanchor="right", yanchor="bottom",
+                showarrow=False,
+                font=dict(size=11, color="#334155", family="Inter, sans-serif"),
+                bgcolor="rgba(241, 245, 249, 0.95)",
+                bordercolor="#CBD5E1",
+                borderwidth=1,
+                borderpad=4
+            )
         except Exception:
             pass
-        _styled_fig(fig, f"Distribution Histogram & Central Tendency — {col}")
+        _styled_fig(fig, f"Distribution Histogram — {col}")
 
         why_text = f"Analyzes central tendency (mean={mean_v:.2f}, median={med_v:.2f}) and distribution spread. "
         if abs(skew) > 1.0:
