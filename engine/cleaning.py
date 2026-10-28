@@ -142,8 +142,6 @@ def treat_outliers_zscore(df: pd.DataFrame, column: str, action: str = "cap", th
     if action == "cap":
         new_df[column] = s_num.clip(lower=lower_bound, upper=upper_bound)
         return new_df, f"Capped {outlier_cnt} Z-Score outliers in '{column}' to [{lower_bound:.2f}, {upper_bound:.2f}]."
-
-        return new_df, f"Capped {outlier_cnt} Z-Score outliers in '{column}' to [{lower_bound:.2f}, {upper_bound:.2f}]."
     elif action == "drop":
         new_df = new_df[~outliers_mask].reset_index(drop=True)
         return new_df, f"Dropped {outlier_cnt} rows with Z-score outliers in '{column}'."

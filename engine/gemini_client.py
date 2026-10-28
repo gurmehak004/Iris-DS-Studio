@@ -12,8 +12,8 @@ import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
 
-_GEMINI_MODEL = "gemini-3.8-flash"
-_GEMINI_TIMEOUT_MS = 15_000
+_GEMINI_MODEL = "gemini-2.0-flash"
+_GEMINI_TIMEOUT_MS = 6_000
 
 
 def _create_client(api_key: str) -> genai.Client:

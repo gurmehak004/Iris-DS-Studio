@@ -807,7 +807,47 @@ def cached_data_health_score(df: pd.DataFrame):
     return compute_data_health_score(df)
 
 
+@st.cache_data(show_spinner=False)
+def cached_quality_report(df: pd.DataFrame, col_types_json: str):
+    """Cache the full quality report — keyed on df content + col types string hash."""
+    col_types = json.loads(col_types_json)
+    return full_quality_report(df, col_types)
+
+
+@st.cache_data(show_spinner=False)
+def cached_col_stats(df: pd.DataFrame, col_types_json: str):
+    """Cache per-column statistics — expensive histogram binning + value counts."""
+    col_types = json.loads(col_types_json)
+    return all_column_stats(df, col_types)
+
+
+@st.cache_data(show_spinner=False)
+def cached_correlation_matrix(df: pd.DataFrame, col_types_json: str):
+    """Cache the Pearson + Spearman correlation matrices — O(n·m²) computation."""
+    col_types = json.loads(col_types_json)
+    return correlation_matrix(df, col_types)
+
+
+@st.cache_data(show_spinner=False)
+def cached_eda_chart_recommendations(df: pd.DataFrame, col_types_json: str):
+    """Cache the full EDA chart suite (Plotly figure objects).
+    col_stats and corr are recomputed inside to keep args hashable.
+    The double computation is fine because cached_col_stats/cached_correlation_matrix
+    are themselves cached and will return instantly on the second call.
+    """
+    col_types = json.loads(col_types_json)
+    col_stats = all_column_stats(df, col_types)
+    corr = correlation_matrix(df, col_types)
+    return generate_eda_chart_recommendations(df, col_types, col_stats, corr)
+
+
+def _col_types_key(col_types: dict) -> str:
+    """Convert col_types dict to a stable JSON string for use as a cache key."""
+    return json.dumps(col_types, sort_keys=True)
+
+
 if S["df"] is not None and not S["df"].columns.is_unique:
+
     duplicate_columns = S["df"].columns[S["df"].columns.duplicated()].unique().tolist()
     S["df"] = S["df"].loc[:, ~S["df"].columns.duplicated()].copy()
     S["col_types"] = infer_all_types(S["df"])
@@ -1196,7 +1236,7 @@ elif S["step"] == "data_cleaning":
     df = S["df"]
     if S["quality"] is None:
         with st.spinner("Auditing data quality..."):
-            S["quality"] = full_quality_report(df, S["col_types"])
+            S["quality"] = cached_quality_report(df, _col_types_key(S["col_types"]))
 
     q = S["quality"]
     health = cached_data_health_score(df)
@@ -1250,7 +1290,7 @@ elif S["step"] == "data_cleaning":
 
                     
                     S["df"] = new_df
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     msg = f"Applied {applied_cnt} recommended data cleaning actions in 1 click!"
                     S["cleaning_log"].append(msg)
                     st.toast(msg)
@@ -1362,7 +1402,7 @@ elif S["step"] == "data_cleaning":
                         if ct == "numeric" and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "median")
                             S["cleaning_log"].append(msg)
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     st.toast("Imputed numeric features with median!")
                     st.rerun()
             with g2:
@@ -1371,7 +1411,7 @@ elif S["step"] == "data_cleaning":
                         if ct == "numeric" and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "mean")
                             S["cleaning_log"].append(msg)
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     st.toast("Imputed numeric features with mean!")
                     st.rerun()
             with g3:
@@ -1380,7 +1420,7 @@ elif S["step"] == "data_cleaning":
                         if ct in ("categorical", "boolean") and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "mode")
                             S["cleaning_log"].append(msg)
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     st.toast("Imputed categorical features with mode!", icon="🏷️")
                     st.rerun()
             with g4:
@@ -1388,7 +1428,7 @@ elif S["step"] == "data_cleaning":
                     S["df"], msg = drop_sparse_columns(S["df"], 40.0)
                     S["col_types"] = infer_all_types(S["df"])
                     S["cleaning_log"].append(msg)
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     st.toast(msg, icon="🗑️")
                     st.rerun()
             with g5:
@@ -1397,7 +1437,7 @@ elif S["step"] == "data_cleaning":
                     S["df"] = S["df"].dropna().reset_index(drop=True)
                     msg = f"Dropped {n_before - len(S['df'])} rows with missing values."
                     S["cleaning_log"].append(msg)
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     st.toast(msg, icon="❌")
                     st.rerun()
 
@@ -1410,7 +1450,7 @@ elif S["step"] == "data_cleaning":
                 S["df"], msg = impute_missing(S["df"], col_target, imp_method, fill_value=const_val)
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
-                S["quality"] = full_quality_report(S["df"], S["col_types"])
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                 st.toast(msg, icon="✨")
                 st.rerun()
         else:
@@ -1432,7 +1472,7 @@ elif S["step"] == "data_cleaning":
             if st.button("Eliminate All Duplicate Rows", type="primary", key="btn_remove_dups"):
                 S["df"], msg = remove_duplicates(S["df"])
                 S["cleaning_log"].append(msg)
-                S["quality"] = full_quality_report(S["df"], S["col_types"])
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                 st.toast(msg)
                 st.rerun()
         else:
@@ -1460,7 +1500,7 @@ elif S["step"] == "data_cleaning":
                             new_df[c] = s_n.clip(lower=lo, upper=hi)
 
                     S["df"] = new_df
-                    S["quality"] = full_quality_report(S["df"], S["col_types"])
+                    S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                     msg = f"Capped IQR outliers in {len(iqr_outlier_df)} column(s) to their IQR boundaries."
                     S["cleaning_log"].append(msg)
                     st.toast(msg)
@@ -1486,7 +1526,7 @@ elif S["step"] == "data_cleaning":
                 else:
                     S["df"], msg = treat_outliers_zscore(S["df"], col_out, action=act)
                 S["cleaning_log"].append(msg)
-                S["quality"] = full_quality_report(S["df"], S["col_types"])
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                 st.toast(msg)
                 st.rerun()
 
@@ -1514,7 +1554,7 @@ elif S["step"] == "data_cleaning":
                         fixed_cnt += 1
                 S["df"] = new_df
                 S["col_types"] = infer_all_types(new_df)
-                S["quality"] = full_quality_report(S["df"], S["col_types"])
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
                 msg = f"Fixed {fixed_cnt} structural errors automatically!"
                 S["cleaning_log"].append(msg)
                 st.toast(msg)
@@ -1722,10 +1762,10 @@ elif S["step"] == "eda":
 
     if S["col_stats"] is None:
         with st.spinner("Computing statistics..."):
-            S["col_stats"] = all_column_stats(df, col_types)
+            S["col_stats"] = cached_col_stats(df, _col_types_key(col_types))
     if S["corr"] is None:
         with st.spinner("Computing correlations..."):
-            S["corr"] = correlation_matrix(df, col_types)
+            S["corr"] = cached_correlation_matrix(df, _col_types_key(col_types))
 
     findings = generate_eda_key_findings(df, col_types)
     if findings:
@@ -1738,7 +1778,8 @@ elif S["step"] == "eda":
         </div>
         """, unsafe_allow_html=True)
 
-    eda_recs = generate_eda_chart_recommendations(df, col_types, S["col_stats"], S["corr"])
+    eda_recs = cached_eda_chart_recommendations(df, _col_types_key(col_types))
+
 
 
     try:
