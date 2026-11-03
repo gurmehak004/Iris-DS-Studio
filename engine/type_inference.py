@@ -17,6 +17,12 @@ def infer_column_type(series: pd.Series) -> str:
     if len(s) == 0:
         return "empty"
 
+    # Check column name semantics
+    col_name = str(series.name).lower().strip() if hasattr(series, "name") and series.name is not None else ""
+    non_id_terms = {"price", "cost", "salary", "wage", "revenue", "sales", "fare", "fee", "val", "value", "target", "score", "rate", "age", "weight", "height", "area", "size"}
+    is_name_non_id = any(term in col_name for term in non_id_terms)
+    is_name_id = any(col_name.endswith(sfx) for sfx in ("_id", "id", "key", "code", "index", "pk", "uuid")) or col_name in ("id", "index", "number")
+
     # Boolean check
     unique_vals = set(str(v).strip().lower() for v in s.unique())
     bool_sets = [{"true", "false"}, {"yes", "no"}, {"1", "0"}, {"y", "n"}]
@@ -34,9 +40,10 @@ def infer_column_type(series: pd.Series) -> str:
 
     # Numeric
     if pd.api.types.is_numeric_dtype(s):
-        # ID heuristic: nearly all unique, integer-like
-        if s.nunique() / len(s) > 0.95 and pd.api.types.is_integer_dtype(s):
-            return "id"
+        # ID heuristic: strictly integer-like and matches ID semantics or high sample count without non-id terms
+        if pd.api.types.is_integer_dtype(s) and (s.nunique() / len(s) > 0.95):
+            if is_name_id or (len(s) >= 100 and not is_name_non_id):
+                return "id"
         return "numeric"
 
     # Try coercing object to numeric

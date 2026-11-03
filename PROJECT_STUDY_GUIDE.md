@@ -34,7 +34,8 @@ Its aim is to bring common data science tasks together and make complex analysis
 - `feature_engineering.py`: Suggests and applies feature transformations, creates interactions, plans transformations, and computes a limited feature-importance preview.
 - `business.py`: Stores domain/objective templates and suggests a target column using names and domain keywords.
 - `ml_recommender.py`: Recommends machine-learning approaches and evaluation metrics. This is called by the current app.
-- `ml.py`: Contains separate model-training and clustering functions. The current app does not call `train_model()` or `run_clustering()`.
+- `ml.py`: Automated model training and evaluation engine. Powers the Stage 5 Baseline Training Studio with Scikit-Learn and XGBoost models, confusion matrix diagnostics, and feature importance rankings.
+- `code_exporter.py`: Generates reproducible Python scripts (.py) and Jupyter Notebooks (.ipynb) replicating all cleaning, feature engineering, and model training actions.
 - `gemini_client.py`: Calls the Gemini API for selected explanations and executive summaries, with fallback text if the API is unavailable or unconfigured.
 - `exporter.py`: Builds the cleaned CSV and PDF report.
 - `html_exporter.py`: Builds the full HTML dashboard.
@@ -209,7 +210,7 @@ The app calls `recommend_ml_models()` from `engine/ml_recommender.py` in the fin
 
 **Neither the recommendation cards nor the Gemini review train the listed models or show actual scores from those models.** Iris suggests a target from the column names, and the Stage 1 target dropdown lets the user confirm or change the value to predict. For example, the housing sample should suggest `price`; generic labels such as `y` must not match substrings such as `age_years`.
 
-There is a separate `engine/ml.py` module containing `train_model()` and `run_clustering()`. `train_model()` defines preprocessing and classifiers/regressors, then uses an 80/20 train/test split; it does not perform cross-validation. Pylance reference search found no caller for `train_model()` in the application. Explain this as code present in the repository but not integrated into the UI.
+In Stage 5, Iris provides the **Baseline Machine Learning Training Studio** backed by `engine/ml.py`. Clicking "Train Baseline Models" runs `train_model()`, automatically constructing leak-free Scikit-Learn ColumnTransformer pipelines and fitting Logistic/Ridge Regression, Random Forest, and XGBoost models. It computes an interactive evaluation leaderboard (ranking by Accuracy or R²), generates a Confusion Matrix heatmap (or Actual vs Predicted scatter plot for regression), and displays a top 10 Feature Importances bar chart. Users can also guard against data leakage in Stage 2 by enabling 80/20 Train/Test Partitioning.
 
 ## 10. AI Explanations
 
@@ -242,7 +243,7 @@ Interactive chat receives the active dataset's row count, column names and infer
 
 **Does it train models?**
 
-“The current user-facing workflow recommends models and metrics. It also has a limited numeric-only Random Forest feature-importance preview. Separate training code exists but is not integrated into the app.”
+“Yes. Stage 5 includes an interactive Baseline Machine Learning Training Studio. Users can train a portfolio of Scikit-Learn and XGBoost models (Logistic/Ridge, Random Forest, XGBoost) directly on the prepared dataset, inspect an evaluation leaderboard, examine confusion matrix or regression fit diagnostics, and analyze top feature importances. To prevent data leakage, Stage 2 offers an optional 80/20 Train/Test partition.”
 
 **How does it handle outliers?**
 

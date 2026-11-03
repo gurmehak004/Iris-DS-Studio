@@ -7,7 +7,9 @@ Iris Data Studio is a premium, AI-powered automated data science workspace. It t
 - **Automated Data Quality Audit:** Instantly detects missing values, duplicates, outliers, and data type inconsistencies.
 - **AI-Powered Feature Engineering:** Get smart recommendations for scaling, encoding, and date-time extractions.
 - **Interactive EDA:** High-quality, dynamic visual distributions, and Pearson correlation matrices.
-- **Machine Learning Recommendations:** Context-aware suggestions for the best ML algorithms to solve your business problem.
+- **Machine Learning Training & Diagnostics:** Interactive training of Scikit-Learn and XGBoost baseline models with real-time performance leaderboards, confusion matrices, regression actual-vs-predicted diagnostics, and top feature importances.
+- **Data Leakage Prevention Guard:** 80/20 Train/Test partitioning option before data cleaning to ensure zero test-set contamination.
+- **Reproducible Code Pipeline Export:** 1-click export of the entire session to a standalone Python script (`iris_pipeline.py`) or interactive Jupyter Notebook (`iris_pipeline.ipynb`).
 - **Professional Exports:** Prepare and download an interactive HTML dashboard, a high-contrast executive PDF report, or your freshly cleaned CSV dataset from the final stage.
 - **"Iris" AI Chat:** Ask questions directly about your dataset's findings.
 

@@ -27,13 +27,13 @@ def impute_missing(df: pd.DataFrame, column: str, method: str, fill_value: Any =
         return new_df, f"No missing values in '{column}'."
 
     if method == "mean":
-        s_num = pd.to_numeric(s, errors="coerce")
+        s_num = pd.to_numeric(s, errors="coerce").astype(float)
         val = float(s_num.mean())
         new_df[column] = s_num.fillna(val)
         return new_df, f"Imputed {null_cnt} missing values in '{column}' with mean ({val:.2f})."
         
     elif method == "median":
-        s_num = pd.to_numeric(s, errors="coerce")
+        s_num = pd.to_numeric(s, errors="coerce").astype(float)
         val = float(s_num.median())
         new_df[column] = s_num.fillna(val)
         return new_df, f"Imputed {null_cnt} missing values in '{column}' with median ({val:.2f})."
@@ -226,7 +226,7 @@ def detect_structural_errors(df: pd.DataFrame) -> List[Dict[str, Any]]:
                 })
 
             # 3. Numeric stored as string check
-            s_num = pd.to_numeric(s, errors="coerce")
+            s_num = pd.to_numeric(s, errors="coerce").astype(float)
             if s_num.notnull().sum() > (len(s) * 0.8):
                 issues.append({
                     "column": col,

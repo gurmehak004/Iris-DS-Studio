@@ -46,6 +46,7 @@ def _load_application_modules():
     global explain_file_overview, explain_data_quality, explain_column, explain_correlations, chat_with_iris
     global generate_executive_summary, generate_stage_insights, is_gemini_api_key_configured, review_model_recommendations
     global recommend_ml_models, inject_custom_css
+    global train_model, auto_detect_target, recommend_task, generate_pipeline_script, generate_pipeline_notebook
     global render_kpi_card, render_iris_says, render_stage_header, render_health_scorecard, render_recommendation_card
     global render_data_preview_table, render_styled_dataframe, render_section_header, ICONS, scroll_to_top
 
@@ -83,6 +84,8 @@ def _load_application_modules():
         is_gemini_api_key_configured, review_model_recommendations
     )
     from engine.ml_recommender import recommend_ml_models
+    from engine.ml import train_model, auto_detect_target, recommend_task
+    from engine.code_exporter import generate_pipeline_script, generate_pipeline_notebook
     from ui.styles import inject_custom_css
     from ui.components import (
         render_kpi_card, render_iris_says, render_stage_header,
@@ -833,6 +836,10 @@ def init_state():
         "iris_says": {},
         "chat_history": [],
         "dataset_fingerprint": None,
+        "train_test_split_enabled": False,
+        "train_df": None,
+        "test_df": None,
+        "trained_model_results": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1312,6 +1319,61 @@ elif S["step"] == "data_cleaning":
     health = cached_data_health_score(df)
 
     render_health_scorecard(health["score"], health["missing_cols"], health["dup_rows"], health["outlier_cols"])
+
+    # ── Data Leakage Prevention Guard: Train/Test Partitioning ────────────────
+    with st.expander("🛡️ Data Leakage Prevention: Train / Test Partitioning (80/20)", expanded=S.get("train_test_split_enabled", False)):
+        st.markdown(
+            "<div style='font-size:0.86rem; color:#334155; margin-bottom:12px; line-height:1.6;'>"
+            "In professional data science, computing imputations, outlier fences, and scaling parameters across "
+            "the full dataset leads to <strong>data leakage</strong> (contaminating evaluation statistics with test data). "
+            "Enable this guard to hold out a 20% test partition before applying cleaning actions."
+            "</div>",
+            unsafe_allow_html=True
+        )
+        guard_col1, guard_col2 = st.columns([3, 1])
+        with guard_col1:
+            leakage_enabled = st.checkbox(
+                "Enable 80/20 Train / Test Partitioning (Holdout Test Guard)",
+                value=S.get("train_test_split_enabled", False),
+                key="chk_train_test_split_guard"
+            )
+        with guard_col2:
+            if S.get("train_test_split_enabled") and S.get("train_df") is not None:
+                st.markdown(
+                    f"<div style='font-size:0.82rem; background:#ECFDF5; border:1px solid #10B981; border-radius:6px; padding:6px 10px; color:#065F46; text-align:center;'>"
+                    f"Active: <strong>{len(S['train_df'])}</strong> Train | <strong>{len(S['test_df'])}</strong> Test"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
+        if leakage_enabled != S.get("train_test_split_enabled", False):
+            if leakage_enabled:
+                from sklearn.model_selection import train_test_split
+                target_col_val = S.get("target_col")
+                strat = None
+                if target_col_val and target_col_val in df.columns:
+                    s_t = df[target_col_val].dropna()
+                    if s_t.nunique() <= 10 and (s_t.value_counts() >= 2).all():
+                        strat = df[target_col_val]
+                tr_sub, ts_sub = train_test_split(df, test_size=0.20, random_state=42, stratify=strat)
+                S["train_df"] = tr_sub.reset_index(drop=True)
+                S["test_df"] = ts_sub.reset_index(drop=True)
+                S["train_test_split_enabled"] = True
+                S["df"] = S["train_df"]
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
+                S["cleaning_log"].append(f"Data Leakage Guard: Partitioned dataset into Train ({len(S['train_df'])} rows) and Holdout Test ({len(S['test_df'])} rows).")
+                st.rerun()
+            else:
+                S["train_test_split_enabled"] = False
+                if S.get("train_df") is not None and S.get("test_df") is not None:
+                    S["df"] = pd.concat([S["train_df"], S["test_df"]], ignore_index=True)
+                S["train_df"] = None
+                S["test_df"] = None
+                S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
+                st.rerun()
+
+    if S.get("train_test_split_enabled") and S.get("train_df") is not None:
+        df = S["train_df"]
 
     st.markdown("""
     <div style="background:#F5F1FF; border:1px solid #DDD6FE; border-left:4px solid #7C3AED; border-radius:8px; padding:14px 18px; margin:16px 0 20px;">
@@ -2530,6 +2592,178 @@ elif S["step"] == "communication":
         """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
+    # ── Baseline Machine Learning Training Studio ─────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_section_header("Baseline Machine Learning Training Studio", "ml", badge="Interactive Evaluation", badge_color="#10B981")
+    st.markdown(
+        "<div style='color:#475569; font-size:0.88rem; margin-bottom:16px; line-height:1.6;'>"
+        "Train, validate, and compare baseline machine learning models directly on your active prepared dataset. "
+        "Evaluates <strong>Ridge/Logistic Regression</strong>, <strong>Random Forest</strong>, and <strong>XGBoost</strong> "
+        "with automated preprocessing, leakage-free validation, and diagnostic visualizations."
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    t_btn_col1, t_btn_col2 = st.columns([3, 1])
+    with t_btn_col1:
+        if st.button("⚡ Train Baseline Models (Leaderboard, Confusion Matrix & Feature Importances)", type="primary", use_container_width=True, key="btn_run_baseline_training"):
+            with st.spinner("Training baseline machine learning models across Scikit-Learn and XGBoost..."):
+                active_target = S.get("target_col") or auto_detect_target(df, S["col_types"])
+                task_res = recommend_task(df, active_target, S["col_types"])
+                
+                custom_split_arg = None
+                if S.get("train_test_split_enabled") and S.get("train_df") is not None and S.get("test_df") is not None:
+                    # Leak-free mode: evaluate strictly on held-out test split
+                    pass
+
+                training_res = train_model(
+                    df,
+                    active_target,
+                    task_res.get("task", "regression"),
+                    S["col_types"]
+                )
+                S["trained_model_results"] = training_res
+                st.rerun()
+
+    with t_btn_col2:
+        if S.get("trained_model_results") and "leaderboard" in S["trained_model_results"]:
+            if st.button("Clear Trained Models", use_container_width=True, key="btn_clear_models"):
+                S["trained_model_results"] = None
+                st.rerun()
+
+    trained_res = S.get("trained_model_results")
+    if trained_res:
+        if "error" in trained_res:
+            st.error(trained_res["error"])
+        elif "leaderboard" in trained_res:
+            best_m = trained_res.get("best_model", "Model")
+            best_s = trained_res.get("best_score", 0.0)
+            n_tr = trained_res.get("n_train_samples", len(df))
+            n_ts = trained_res.get("n_test_samples", 0)
+            target_name = trained_res.get("target_col", S.get("target_col", "Target"))
+            task_type_label = trained_res.get("task", "Supervised Learning").replace("_", " ").title()
+
+            st.markdown(f"""
+            <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:10px; padding:14px 20px; margin:14px 0 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <span style="font-size:0.75rem; font-weight:800; color:#059669; text-transform:uppercase; letter-spacing:0.06em;">Top Performing Baseline Model</span>
+                        <div style="font-size:1.15rem; font-weight:900; color:#064E3B; margin-top:2px;">⭐ {best_m}</div>
+                    </div>
+                    <div style="display:flex; gap:20px;">
+                        <div style="text-align:right;">
+                            <div style="font-size:0.72rem; color:#64748B; font-weight:700; text-transform:uppercase;">Primary Metric Score</div>
+                            <div style="font-size:1.15rem; font-weight:900; color:#10B981;">{best_s:.4f}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:0.72rem; color:#64748B; font-weight:700; text-transform:uppercase;">Train / Test Split</div>
+                            <div style="font-size:1.0rem; font-weight:800; color:#1E293B;">{n_tr:,} / {n_ts:,} rows</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Leaderboard Table
+            st.markdown("#### 🏆 Baseline Model Leaderboard")
+            lb_rows = []
+            for idx, item in enumerate(trained_res["leaderboard"]):
+                is_win = idx == 0 and item["status"] == "Success"
+                win_badge = " ⭐ (Winner)" if is_win else ""
+                lb_rows.append({
+                    "Rank": f"#{idx+1}",
+                    "Model": item["model"] + win_badge,
+                    item.get("primary_label", "Score"): item["primary_metric"],
+                    item.get("secondary_label", "Secondary"): item["secondary_metric"],
+                    "Training Time": item.get("train_time", "0s"),
+                    "Status": item.get("status", "Success")
+                })
+            st.dataframe(pd.DataFrame(lb_rows), use_container_width=True, hide_index=True)
+
+            # Two-Column Evaluation Charts
+            diag_col1, diag_col2 = st.columns(2)
+
+            with diag_col1:
+                if "confusion_matrix" in trained_res and trained_res["confusion_matrix"]:
+                    cm_data = np.array(trained_res["confusion_matrix"])
+                    class_labels = trained_res.get("class_labels") or [f"Class {i}" for i in range(len(cm_data))]
+                    fig_cm = px.imshow(
+                        cm_data,
+                        x=class_labels,
+                        y=class_labels,
+                        text_auto=True,
+                        color_continuous_scale="Purples",
+                        labels=dict(x="Predicted Label", y="Actual True Label", color="Count"),
+                    )
+                    fig_cm.update_layout(
+                        title=dict(text=f"Confusion Matrix — {best_m}", font=dict(size=13, color="#7C3AED")),
+                        height=380,
+                        margin=dict(l=40, r=20, t=50, b=40),
+                    )
+                    st.plotly_chart(fig_cm, use_container_width=True)
+                elif "regression_diagnostics" in trained_res:
+                    diag = trained_res["regression_diagnostics"]
+                    y_true = diag["y_true"]
+                    y_pred = diag["y_pred"]
+                    sc_plot_df = pd.DataFrame({"Actual": y_true, "Predicted": y_pred})
+                    fig_reg = px.scatter(
+                        sc_plot_df, x="Actual", y="Predicted",
+                        color_discrete_sequence=["#7C3AED"],
+                        title=f"Actual vs Predicted Values — {best_m}"
+                    )
+                    min_val = min(min(y_true), min(y_pred))
+                    max_val = max(max(y_true), max(y_pred))
+                    fig_reg.add_shape(
+                        type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val,
+                        line=dict(color="#0891B2", dash="dash", width=2)
+                    )
+                    fig_reg.update_layout(
+                        title=dict(text=f"Actual vs Predicted — {best_m}", font=dict(size=13, color="#7C3AED")),
+                        height=380,
+                        margin=dict(l=40, r=20, t=50, b=40),
+                    )
+                    st.plotly_chart(fig_reg, use_container_width=True)
+
+            with diag_col2:
+                fi_dict = trained_res.get("feature_importances", {})
+                if fi_dict:
+                    fi_df = pd.DataFrame({
+                        "Feature": list(fi_dict.keys()),
+                        "Importance": list(fi_dict.values())
+                    }).sort_values("Importance", ascending=True).tail(10)
+
+                    fig_fi = px.bar(
+                        fi_df, x="Importance", y="Feature", orientation="h",
+                        color="Importance", color_continuous_scale=["#DDD6FE", "#7C3AED"]
+                    )
+                    fig_fi.update_layout(
+                        title=dict(text=f"Top Feature Importances — {best_m}", font=dict(size=13, color="#7C3AED")),
+                        height=380,
+                        margin=dict(l=40, r=20, t=50, b=40),
+                        coloraxis_showscale=False
+                    )
+                    st.plotly_chart(fig_fi, use_container_width=True)
+                else:
+                    st.info("Feature importance details will appear once tree-based models or regularized linear models are evaluated.")
+
+            # Classification Report Expander
+            if "classification_report" in trained_res and isinstance(trained_res["classification_report"], dict):
+                with st.expander("Detailed Per-Class Precision / Recall / F1 Metrics Breakdown", expanded=False):
+                    cr_data = trained_res["classification_report"]
+                    cr_rows = []
+                    for k, v in cr_data.items():
+                        if isinstance(v, dict):
+                            cr_rows.append({
+                                "Class": k,
+                                "Precision": round(v.get("precision", 0), 4),
+                                "Recall": round(v.get("recall", 0), 4),
+                                "F1-Score": round(v.get("f1-score", 0), 4),
+                                "Support": int(v.get("support", 0))
+                            })
+                    if cr_rows:
+                        st.dataframe(pd.DataFrame(cr_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
     render_section_header("Export Reports & Datasets", "export")
 
     d1, d2, d3 = st.columns(3)
@@ -2621,6 +2855,66 @@ elif S["step"] == "communication":
                 type="primary",
                 key="comm_dl_csv",
             )
+
+    # ── Reproducible Code Pipeline Export ─────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_section_header("Reproducible Code Pipeline Export", "export", badge="Python & Jupyter", badge_color="#7C3AED")
+    st.markdown(
+        "<div style='color:#475569; font-size:0.88rem; margin-bottom:16px; line-height:1.6;'>"
+        "Export the complete sequence of data ingestion, cleaning, feature engineering, and model training "
+        "as fully executable, production-ready code for JupyterLab, VS Code, or Google Colab."
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    dataset_name_clean = S.get("meta", {}).get("dataset_name", "dataset.csv") if S.get("meta") else "dataset.csv"
+    active_target_clean = S.get("target_col") or auto_detect_target(df, S["col_types"])
+    task_res_clean = recommend_task(df, active_target_clean, S["col_types"])
+    best_m_name = (S.get("trained_model_results") or {}).get("best_model", "Random Forest Classifier")
+
+    script_str = generate_pipeline_script(
+        dataset_name=dataset_name_clean,
+        cleaning_actions=S.get("cleaning_log", []),
+        fe_actions=S.get("transformation_log", []),
+        target_col=active_target_clean,
+        task=task_res_clean.get("task", "binary_classification"),
+        train_test_split_enabled=S.get("train_test_split_enabled", True),
+        best_model_name=best_m_name,
+    )
+
+    notebook_str = generate_pipeline_notebook(
+        dataset_name=dataset_name_clean,
+        cleaning_actions=S.get("cleaning_log", []),
+        fe_actions=S.get("transformation_log", []),
+        target_col=active_target_clean,
+        task=task_res_clean.get("task", "binary_classification"),
+        train_test_split_enabled=S.get("train_test_split_enabled", True),
+        best_model_name=best_m_name,
+    )
+
+    cp_col1, cp_col2 = st.columns(2)
+    with cp_col1:
+        st.download_button(
+            "Download Python Pipeline Script (iris_pipeline.py)",
+            script_str,
+            "iris_pipeline.py",
+            "text/x-python",
+            use_container_width=True,
+            type="primary",
+            key="btn_dl_pipeline_py",
+        )
+    with cp_col2:
+        st.download_button(
+            "Download Jupyter Notebook (iris_pipeline.ipynb)",
+            notebook_str,
+            "iris_pipeline.ipynb",
+            "application/json",
+            use_container_width=True,
+            key="btn_dl_pipeline_ipynb",
+        )
+
+    with st.expander("Preview Generated Python Code", expanded=False):
+        st.code(script_str, language="python")
 
     st.markdown("---")
 
