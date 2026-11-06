@@ -2764,6 +2764,31 @@ elif S["step"] == "communication":
                         st.dataframe(pd.DataFrame(cr_rows), use_container_width=True, hide_index=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
+    dataset_name_clean = S.get("meta", {}).get("dataset_name", "dataset.csv") if S.get("meta") else "dataset.csv"
+    active_target_clean = S.get("target_col") or auto_detect_target(df, S["col_types"])
+    task_res_clean = recommend_task(df, active_target_clean, S["col_types"])
+    best_m_name = (S.get("trained_model_results") or {}).get("best_model", "Random Forest Classifier")
+
+    script_str = generate_pipeline_script(
+        dataset_name=dataset_name_clean,
+        cleaning_actions=S.get("cleaning_log", []),
+        fe_actions=S.get("transformation_log", []),
+        target_col=active_target_clean,
+        task=task_res_clean.get("task", "binary_classification"),
+        train_test_split_enabled=S.get("train_test_split_enabled", True),
+        best_model_name=best_m_name,
+    )
+
+    notebook_str = generate_pipeline_notebook(
+        dataset_name=dataset_name_clean,
+        cleaning_actions=S.get("cleaning_log", []),
+        fe_actions=S.get("transformation_log", []),
+        target_col=active_target_clean,
+        task=task_res_clean.get("task", "binary_classification"),
+        train_test_split_enabled=S.get("train_test_split_enabled", True),
+        best_model_name=best_m_name,
+    )
+
     render_section_header("Export Reports & Datasets", "export")
 
     d1, d2, d3 = st.columns(3)
@@ -2783,7 +2808,15 @@ elif S["step"] == "communication":
                     S["prepared_html_dashboard"] = build_html_dashboard(
                         S["meta"], S["col_types"], S["quality"] or {},
                         S["col_stats"] or {}, S["corr"] or {},
-                        {}, S["iris_says"], S["df"]
+                        ml_results=S.get("trained_model_results"),
+                        iris_says=S.get("iris_says", {}),
+                        df=S["df"],
+                        cleaning_log=S.get("cleaning_log", []),
+                        fe_log=S.get("transformation_log", []),
+                        health_score=cached_data_health_score(S["df"]),
+                        target_col=S.get("target_col"),
+                        train_test_split_enabled=S.get("train_test_split_enabled", False),
+                        pipeline_script=script_str,
                     )
                     S["prepared_html_dashboard_signature"] = report_signature
             except Exception as e:
