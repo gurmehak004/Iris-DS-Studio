@@ -624,3 +624,227 @@ def get_before_after_stats(df_before: pd.DataFrame, df_after: pd.DataFrame) -> D
         "missing_cells_after": int(df_after.isnull().sum().sum())
     }
 
+
+def generate_dataset_cleaning_prescription(
+    df: pd.DataFrame,
+    col_types: Dict[str, str],
+    target_col: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Diagnoses the dataset and generates a prescriptive action plan for each of the
+    7 cleaning steps, distinguishing between mandatory fixes, clean/skippable steps,
+    and optional steps handled automatically by Stage 5 ML pipelines.
+    """
+    if df is None or df.empty:
+        return {"has_actions": False, "plan": {}}
+
+    n_rows = len(df)
+    feature_cols = [c for c in df.columns if c != target_col]
+    plan = {}
+
+    # Step 1: Missing Values
+    null_counts = df[feature_cols].isnull().sum()
+    cols_with_nulls = {col: int(cnt) for col, cnt in null_counts.items() if cnt > 0}
+    if cols_with_nulls:
+        tot_missing = sum(cols_with_nulls.values())
+        col_names = ", ".join(list(cols_with_nulls.keys())[:3])
+        if len(cols_with_nulls) > 3:
+            col_names += f" (+{len(cols_with_nulls) - 3} more)"
+        plan[1] = {
+            "name": "Missing Values",
+            "status": "ACTION_REQUIRED",
+            "badge": "Action Required",
+            "icon": "⚠️",
+            "color": "#DC2626",
+            "summary": f"{tot_missing} null cells found across {len(cols_with_nulls)} column(s): {col_names}.",
+            "recommendation": "Impute numeric features with Median and categorical features with Mode.",
+            "action_needed": True
+        }
+    else:
+        plan[1] = {
+            "name": "Missing Values",
+            "status": "CLEAN",
+            "badge": "Clean (Skip)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "No missing values detected. All columns are fully populated.",
+            "recommendation": "No imputation needed. You can safely skip this step.",
+            "action_needed": False
+        }
+
+    # Step 2: Duplicates
+    dup_cnt = int(df.duplicated().sum())
+    if dup_cnt > 0:
+        plan[2] = {
+            "name": "Duplicates",
+            "status": "ACTION_REQUIRED",
+            "badge": "Action Required",
+            "icon": "⚠️",
+            "color": "#DC2626",
+            "summary": f"{dup_cnt} duplicate row(s) detected ({(dup_cnt / n_rows) * 100:.1f}% of data).",
+            "recommendation": "Drop duplicate rows to prevent over-weighting repeated observations.",
+            "action_needed": True
+        }
+    else:
+        plan[2] = {
+            "name": "Duplicates",
+            "status": "CLEAN",
+            "badge": "Clean (Skip)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "Zero duplicate rows found. Every observation is distinct.",
+            "recommendation": "No deduplication required. Safe to skip.",
+            "action_needed": False
+        }
+
+    # Step 3: Outliers
+    num_cols = [c for c in feature_cols if col_types.get(c) == "numeric" or pd.api.types.is_numeric_dtype(df[c])]
+    outlier_cols = {}
+    for c in num_cols:
+        s = pd.to_numeric(df[c], errors="coerce").dropna()
+        if len(s) >= 4:
+            q1, q3 = s.quantile(0.25), s.quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                cnt = int(((s < (q1 - 1.5 * iqr)) | (s > (q3 + 1.5 * iqr))).sum())
+                if cnt > 0:
+                    outlier_cols[c] = cnt
+
+    if outlier_cols:
+        tot_out = sum(outlier_cols.values())
+        out_names = ", ".join(list(outlier_cols.keys())[:3])
+        if len(outlier_cols) > 3:
+            out_names += f" (+{len(outlier_cols) - 3} more)"
+        plan[3] = {
+            "name": "Outliers",
+            "status": "CAUTION",
+            "badge": "Review / Cap",
+            "icon": "🟡",
+            "color": "#D97706",
+            "summary": f"{tot_out} statistical outliers detected across {len(outlier_cols)} feature(s): {out_names}.",
+            "recommendation": "Winsorize (cap) extreme values at IQR fences instead of dropping rows.",
+            "action_needed": True
+        }
+    else:
+        plan[3] = {
+            "name": "Outliers",
+            "status": "CLEAN",
+            "badge": "Clean (Skip)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "No severe numeric outliers detected outside standard IQR boundaries.",
+            "recommendation": "Distribution bounds are healthy. Safe to skip.",
+            "action_needed": False
+        }
+
+    # Step 4: Structural Errors
+    obj_cols = [c for c in feature_cols if df[c].dtype == "object"]
+    whitespace_issues = 0
+    for c in obj_cols:
+        s_str = df[c].dropna().astype(str)
+        if (s_str.str.strip() != s_str).any():
+            whitespace_issues += 1
+
+    if whitespace_issues > 0:
+        plan[4] = {
+            "name": "Structural Errors",
+            "status": "ACTION_REQUIRED",
+            "badge": "Action Required",
+            "icon": "⚠️",
+            "color": "#DC2626",
+            "summary": f"{whitespace_issues} column(s) contain untrimmed leading or trailing whitespaces.",
+            "recommendation": "Trim string whitespaces and standardize text casing.",
+            "action_needed": True
+        }
+    else:
+        plan[4] = {
+            "name": "Structural Errors",
+            "status": "CLEAN",
+            "badge": "Clean (Skip)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "No text whitespace or structural formatting errors detected.",
+            "recommendation": "Data structure is uniform. Safe to skip.",
+            "action_needed": False
+        }
+
+    # Step 5: Categorical Encoding
+    cat_cols = [c for c in feature_cols if col_types.get(c) in ("categorical", "boolean", "text") or df[c].dtype == "object"]
+    if cat_cols:
+        plan[5] = {
+            "name": "Categorical Encoding",
+            "status": "AUTO_PIPELINE",
+            "badge": "Optional (Auto in Stage 5)",
+            "icon": "ℹ️",
+            "color": "#6D28D9",
+            "summary": f"{len(cat_cols)} categorical feature(s) present ({', '.join(cat_cols[:3])}).",
+            "recommendation": "You can encode here manually, or let Stage 5 Scikit-Learn Pipeline auto-encode with Ordinal/One-Hot encoding.",
+            "action_needed": False
+        }
+    else:
+        plan[5] = {
+            "name": "Categorical Encoding",
+            "status": "NOT_APPLICABLE",
+            "badge": "N/A (All Numeric)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "No categorical columns found; all features are already numeric.",
+            "recommendation": "No encoding needed. Safe to skip.",
+            "action_needed": False
+        }
+
+    # Step 6: Feature Scaling
+    if len(num_cols) >= 2:
+        plan[6] = {
+            "name": "Feature Scaling",
+            "status": "AUTO_PIPELINE",
+            "badge": "Optional (Auto in Stage 5)",
+            "icon": "ℹ️",
+            "color": "#0891B2",
+            "summary": f"{len(num_cols)} numeric feature(s) detected across varied scales.",
+            "recommendation": "Tree models (XGBoost, Random Forest) do not need scaling. Stage 5 automatically applies StandardScaler to linear models.",
+            "action_needed": False
+        }
+    else:
+        plan[6] = {
+            "name": "Feature Scaling",
+            "status": "NOT_APPLICABLE",
+            "badge": "N/A (Few Numerics)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "Fewer than 2 numeric features detected.",
+            "recommendation": "Scaling is not required. Safe to skip.",
+            "action_needed": False
+        }
+
+    # Step 7: Data Reduction
+    const_cols = [c for c in feature_cols if df[c].nunique(dropna=False) <= 1]
+    id_cols = [c for c in feature_cols if col_types.get(c) == "id" or (df[c].nunique() == n_rows and df[c].dtype == "object")]
+    if const_cols or id_cols:
+        problem_cols = const_cols + id_cols
+        plan[7] = {
+            "name": "Data Reduction",
+            "status": "ACTION_REQUIRED",
+            "badge": "Action Required",
+            "icon": "⚠️",
+            "color": "#DC2626",
+            "summary": f"{len(problem_cols)} non-predictive feature(s) detected ({', '.join(problem_cols[:3])}).",
+            "recommendation": "Drop unique IDs and zero-variance constant columns to avoid model noise.",
+            "action_needed": True
+        }
+    else:
+        plan[7] = {
+            "name": "Data Reduction",
+            "status": "CLEAN",
+            "badge": "Clean (Skip)",
+            "icon": "✅",
+            "color": "#059669",
+            "summary": "No zero-variance constant features or redundant ID columns found.",
+            "recommendation": "Feature variance is healthy. Safe to skip.",
+            "action_needed": False
+        }
+
+    has_actions = any(item["action_needed"] for item in plan.values())
+    return {"has_actions": has_actions, "plan": plan}
+
+

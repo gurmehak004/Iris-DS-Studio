@@ -70,7 +70,7 @@ def _load_application_modules():
         get_encoding_suggestions, auto_encode_all_categorical,
         get_scaling_suggestions, auto_scale_all_numeric,
         detect_cleaning_recommendations, compute_data_health_score, get_before_after_stats,
-        detect_structural_errors
+        detect_structural_errors, generate_dataset_cleaning_prescription
     )
     from engine.eda_automation import generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
     from engine.feature_engineering import (
@@ -84,7 +84,7 @@ def _load_application_modules():
         is_gemini_api_key_configured, review_model_recommendations
     )
     from engine.ml_recommender import recommend_ml_models
-    from engine.ml import train_model, auto_detect_target, recommend_task
+    from engine.ml import train_model, auto_detect_target, recommend_task, predict_single_instance
     from engine.code_exporter import generate_pipeline_script, generate_pipeline_notebook
     from ui.styles import inject_custom_css
     from ui.components import (
@@ -1231,6 +1231,57 @@ if S["step"] == "business_collection":
         )
         S["target_col"] = selected_target
 
+        # Data Science Lifecycle Step 1 Diagnostic: Problem Formulation
+        task_info = recommend_task(df, selected_target, col_types)
+        task_label = task_info.get("task", "Supervised Learning").replace("_", " ").title()
+
+        st.markdown(f"""
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid #7C3AED; border-radius:10px; padding:16px 20px; margin:16px 0 20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+                <div>
+                    <span style="font-size:0.75rem; font-weight:800; color:#6D28D9; text-transform:uppercase; letter-spacing:0.07em;">Data Science Problem Formulation</span>
+                    <div style="font-size:1.1rem; font-weight:900; color:#0F172A; margin-top:2px;">🎯 Target: <code>{selected_target}</code> &nbsp;•&nbsp; Task: <span style="color:#7C3AED;">{task_label}</span></div>
+                </div>
+                <div style="background:#EDE9FE; color:#5B21B6; font-size:0.78rem; font-weight:800; padding:6px 12px; border-radius:20px;">
+                    {task_info.get('reason', '')}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if task_info.get("task") in ("binary_classification", "multiclass_classification"):
+            s_t = df[selected_target].dropna()
+            val_counts = s_t.value_counts()
+            tot_t = len(s_t)
+            min_class_pct = (val_counts.min() / tot_t) * 100 if tot_t > 0 else 50.0
+            summary_pills = " &nbsp;|&nbsp; ".join([f"<strong>{k}</strong>: {cnt:,} ({cnt/tot_t*100:.1f}%)" for k, cnt in val_counts.items()][:4])
+            st.markdown(f"<div style='font-size:0.85rem; color:#334155; margin-bottom:8px;'><strong>Class Distribution:</strong> {summary_pills}</div>", unsafe_allow_html=True)
+            if min_class_pct < 25.0:
+                st.markdown(f"""
+                <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px; padding:10px 14px; font-size:0.82rem; color:#92400E; margin-top:8px;">
+                    ⚠️ <strong>Class Imbalance Alert (Minority Class: {min_class_pct:.1f}%):</strong> Standard accuracy can be misleading on imbalanced datasets. 
+                    In Stage 2, stratified train/test partitioning is recommended, and Stage 5 will benchmark using <strong>Weighted F1-Score</strong> and <strong>Precision-Recall Curves</strong>.
+                </div>
+                """, unsafe_allow_html=True)
+        elif task_info.get("task") == "regression":
+            s_num = pd.to_numeric(df[selected_target], errors="coerce").dropna()
+            st.markdown(f"""
+            <div style="font-size:0.85rem; color:#334155;">
+                <strong>Continuous Target Profile:</strong> Mean: <code>{s_num.mean():.2f}</code> | Median: <code>{s_num.median():.2f}</code> | Range: [<code>{s_num.min():.2f}</code> to <code>{s_num.max():.2f}</code>]
+            </div>
+            """, unsafe_allow_html=True)
+
+        id_detected = [c for c in df.columns if c != selected_target and (col_types.get(c) == "id" or (df[c].nunique() == len(df) and df[c].dtype == "object"))]
+        if id_detected:
+            id_list_str = ", ".join([f"<code>{c}</code>" for c in id_detected[:3]])
+            st.markdown(f"""
+            <div style="background:#F1F5F9; border:1px solid #CBD5E1; border-radius:8px; padding:8px 14px; font-size:0.8rem; color:#475569; margin-top:10px;">
+                🛡️ <strong>Identifier Feature Detected:</strong> {id_list_str} has 100% unique values. 
+                Iris will exclude identifier columns from model feature inputs in Stage 5 to prevent artificial overfitting.
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
         render_section_header("Dataset Health & Profiling Snapshot", "health", badge=f"Health: {health['score']}/100", badge_color="#10B981" if health['score'] >= 80 else "#F59E0B")
         
         p1, p2, p3, p4 = st.columns(4)
@@ -1375,13 +1426,20 @@ elif S["step"] == "data_cleaning":
     if S.get("train_test_split_enabled") and S.get("train_df") is not None:
         df = S["train_df"]
 
-    st.markdown("""
-    <div style="background:#F5F1FF; border:1px solid #DDD6FE; border-left:4px solid #7C3AED; border-radius:8px; padding:14px 18px; margin:16px 0 20px;">
-        <div style="font-weight:800; color:#5B21B6; font-size:0.95rem; margin-bottom:4px;">Stage 2 Roadmap: Work Through 7 Steps Before Proceeding</div>
-        <div style="color:#334155; font-size:0.85rem; line-height:1.65;">
-            1. Review automated diagnosis below & execute <strong>Apply All Fixes (1-Click)</strong> if recommendations exist.<br/>
-            2. Inspect each of the <strong>7 cleaning tabs below</strong> (Missing Values, Duplicates, Outliers, Structural, Encoding, Scaling, Reduction).<br/>
-            3. Once steps show <span style="color:#10B981; font-weight:700;">Clean / Ready</span>, click the <strong>Proceed to Stage 3</strong> button at the bottom of the page.
+    # ── Dataset-Specific Action Plan (Prescription) ──────────────────────────
+    prescription = generate_dataset_cleaning_prescription(df, S["col_types"], S.get("target_col"))
+    p_plan = prescription.get("plan", {})
+
+    st.markdown(f"""
+    <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid #7C3AED; border-radius:10px; padding:16px 20px; margin:16px 0 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+            <div style="font-weight:800; color:#5B21B6; font-size:1.0rem;">📋 Stage 2 Action Plan: Dataset Diagnostic Prescription</div>
+            <div style="font-size:0.8rem; background:{'#FEF2F2' if prescription.get('has_actions') else '#F0FDF4'}; color:{'#DC2626' if prescription.get('has_actions') else '#16A34A'}; font-weight:800; padding:4px 10px; border-radius:12px; border:1px solid {'#FECACA' if prescription.get('has_actions') else '#BBF7D0'};">
+                {'⚠️ Actions Required' if prescription.get('has_actions') else '✅ Dataset Clean'}
+            </div>
+        </div>
+        <div style="color:#334155; font-size:0.85rem; line-height:1.65; margin-bottom:12px;">
+            Iris analyzed all 7 data preparation areas for this specific dataset. <strong>You do not need to execute all 7 steps.</strong> Only steps marked <span style="color:#DC2626; font-weight:700;">Action Required</span> need intervention. Steps marked <span style="color:#10B981; font-weight:700;">Clean (Skip)</span> can be safely bypassed, and steps marked <span style="color:#6D28D9; font-weight:700;">Optional (Auto in Stage 5)</span> are handled by Scikit-Learn transformers during baseline modeling.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1507,14 +1565,22 @@ elif S["step"] == "data_cleaning":
     </div>
     """, unsafe_allow_html=True)
 
+    p1_ic = p_plan.get(1, {}).get("icon", "⚠️" if _miss_count > 0 else "✅")
+    p2_ic = p_plan.get(2, {}).get("icon", "⚠️" if _dup_count > 0 else "✅")
+    p3_ic = p_plan.get(3, {}).get("icon", "🟡" if _out_count > 0 else "✅")
+    p4_ic = p_plan.get(4, {}).get("icon", "⚠️" if _struct_count > 0 else "✅")
+    p5_ic = p_plan.get(5, {}).get("icon", "ℹ️")
+    p6_ic = p_plan.get(6, {}).get("icon", "ℹ️")
+    p7_ic = p_plan.get(7, {}).get("icon", "✅")
+
     t_miss, t_dup, t_out, t_struct, t_enc, t_scale, t_red = st.tabs([
-        "1. Missing Values",
-        "2. Duplicates",
-        "3. Treat Outliers",
-        "4. Structural Errors",
-        "5. Categorical Encoding",
-        "6. Feature Scaling",
-        "7. Data Reduction"
+        f"1. Missing Values {p1_ic}",
+        f"2. Duplicates {p2_ic}",
+        f"3. Treat Outliers {p3_ic}",
+        f"4. Structural Errors {p4_ic}",
+        f"5. Categorical Encoding {p5_ic}",
+        f"6. Feature Scaling {p6_ic}",
+        f"7. Data Reduction {p7_ic}"
     ], key="cleaning_workflow_tabs", on_change="rerun")
 
 
@@ -2616,11 +2682,13 @@ elif S["step"] == "communication":
                     # Leak-free mode: evaluate strictly on held-out test split
                     pass
 
+                run_cv_opt = S.get("chk_stage5_cv", False)
                 training_res = train_model(
                     df,
                     active_target,
                     task_res.get("task", "regression"),
-                    S["col_types"]
+                    S["col_types"],
+                    run_cross_validation=run_cv_opt
                 )
                 S["trained_model_results"] = training_res
                 st.rerun()
@@ -2670,14 +2738,17 @@ elif S["step"] == "communication":
             for idx, item in enumerate(trained_res["leaderboard"]):
                 is_win = idx == 0 and item["status"] == "Success"
                 win_badge = " ⭐ (Winner)" if is_win else ""
-                lb_rows.append({
+                row_dict = {
                     "Rank": f"#{idx+1}",
                     "Model": item["model"] + win_badge,
                     item.get("primary_label", "Score"): item["primary_metric"],
                     item.get("secondary_label", "Secondary"): item["secondary_metric"],
-                    "Training Time": item.get("train_time", "0s"),
-                    "Status": item.get("status", "Success")
-                })
+                }
+                if "cv_score" in item:
+                    row_dict["5-Fold CV Score"] = item["cv_score"]
+                row_dict["Training Time"] = item.get("train_time", "0s")
+                row_dict["Status"] = item.get("status", "Success")
+                lb_rows.append(row_dict)
             st.dataframe(pd.DataFrame(lb_rows), use_container_width=True, hide_index=True)
 
             # Two-Column Evaluation Charts
@@ -2746,7 +2817,106 @@ elif S["step"] == "communication":
                 else:
                     st.info("Feature importance details will appear once tree-based models or regularized linear models are evaluated.")
 
-            # Classification Report Expander
+            # ROC-AUC & Precision-Recall Diagnostic Curves
+            if "roc_curve" in trained_res or "pr_curve" in trained_res:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("#### 📈 Advanced Model Diagnostics: ROC-AUC & Precision-Recall Curves")
+                curve_col1, curve_col2 = st.columns(2)
+                with curve_col1:
+                    if "roc_curve" in trained_res:
+                        rc = trained_res["roc_curve"]
+                        roc_df = pd.DataFrame({"False Positive Rate": rc["fpr"], "True Positive Rate": rc["tpr"]})
+                        fig_roc = px.line(
+                            roc_df, x="False Positive Rate", y="True Positive Rate",
+                            title=f"ROC Curve (AUC = {rc['auc']:.4f}) — {best_m}",
+                            color_discrete_sequence=["#7C3AED"]
+                        )
+                        fig_roc.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(color="#94A3B8", dash="dash"))
+                        fig_roc.update_layout(height=340, margin=dict(l=40, r=20, t=50, b=40))
+                        st.plotly_chart(fig_roc, use_container_width=True)
+                with curve_col2:
+                    if "pr_curve" in trained_res:
+                        pr = trained_res["pr_curve"]
+                        pr_df = pd.DataFrame({"Recall": pr["recall"], "Precision": pr["precision"]})
+                        fig_pr = px.line(
+                            pr_df, x="Recall", y="Precision",
+                            title=f"Precision-Recall Curve (Avg Precision = {pr['avg_precision']:.4f}) — {best_m}",
+                            color_discrete_sequence=["#0891B2"]
+                        )
+                        fig_pr.update_layout(height=340, margin=dict(l=40, r=20, t=50, b=40))
+                        st.plotly_chart(fig_pr, use_container_width=True)
+
+            # Interactive What-If Live Prediction Simulator
+            if trained_res.get("best_pipeline") is not None and trained_res.get("feature_cols"):
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.expander("🧪 Interactive What-If Simulator: Test Live Predictions on Best Model", expanded=True):
+                    st.markdown(f"Configure custom input features below to simulate real-time predictions using **{best_m}**.")
+                    
+                    feat_cols = trained_res["feature_cols"]
+                    sim_input_cols = st.columns(min(4, max(1, len(feat_cols))))
+                    sim_inputs = {}
+                    
+                    for idx, col in enumerate(feat_cols[:8]):
+                        col_w = sim_input_cols[idx % len(sim_input_cols)]
+                        c_type = S["col_types"].get(col, "unknown")
+                        with col_w:
+                            if c_type == "numeric" or pd.api.types.is_numeric_dtype(df[col]):
+                                s_clean = pd.to_numeric(df[col], errors="coerce").dropna()
+                                c_min = float(s_clean.min()) if len(s_clean) > 0 else 0.0
+                                c_max = float(s_clean.max()) if len(s_clean) > 0 else 100.0
+                                c_med = float(s_clean.median()) if len(s_clean) > 0 else 0.0
+                                if c_min >= c_max:
+                                    c_max = c_min + 1.0
+                                sim_inputs[col] = st.slider(col, min_value=c_min, max_value=c_max, value=c_med, key=f"sim_{col}")
+                            else:
+                                unq_vals = [str(x) for x in df[col].dropna().unique()][:10]
+                                if not unq_vals:
+                                    unq_vals = ["Unknown"]
+                                sim_inputs[col] = st.selectbox(col, unq_vals, index=0, key=f"sim_{col}")
+
+                    if st.button("🚀 Run Live Prediction Simulation", type="primary", use_container_width=True, key="btn_run_sim"):
+                        with st.spinner("Executing model inference..."):
+                            sim_out = predict_single_instance(
+                                trained_res["best_pipeline"],
+                                sim_inputs,
+                                feat_cols,
+                                S["col_types"],
+                                trained_res["task"],
+                                trained_res.get("label_encoder")
+                            )
+
+                        if "error" in sim_out:
+                            st.error(sim_out["error"])
+                        else:
+                            st.markdown("---")
+                            res_c1, res_c2 = st.columns(2)
+                            with res_c1:
+                                if "predicted_label" in sim_out:
+                                    st.markdown(f"""
+                                    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:8px; padding:12px 18px;">
+                                        <div style="font-size:0.75rem; font-weight:800; color:#059669; text-transform:uppercase;">Model Prediction</div>
+                                        <div style="font-size:1.4rem; font-weight:900; color:#064E3B; margin-top:4px;">{target_name} = {sim_out['predicted_label']}</div>
+                                        <div style="font-size:0.85rem; color:#065F46; font-weight:700; margin-top:4px;">Confidence: {sim_out.get('confidence_pct', 100)}%</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"""
+                                    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:8px; padding:12px 18px;">
+                                        <div style="font-size:0.75rem; font-weight:800; color:#059669; text-transform:uppercase;">Predicted Value</div>
+                                        <div style="font-size:1.4rem; font-weight:900; color:#064E3B; margin-top:4px;">{target_name} ≈ {sim_out.get('predicted_value', 0):,}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                            with res_c2:
+                                if "probabilities" in sim_out:
+                                    prob_df = pd.DataFrame({
+                                        "Class": list(sim_out["probabilities"].keys()),
+                                        "Probability": list(sim_out["probabilities"].values())
+                                    })
+                                    fig_prob = px.bar(prob_df, x="Probability", y="Class", orientation="h", color="Probability", color_continuous_scale="Purples")
+                                    fig_prob.update_layout(height=140, margin=dict(l=20, r=20, t=10, b=10), coloraxis_showscale=False)
+                                    st.plotly_chart(fig_prob, use_container_width=True)
+
+                        # Classification Report Expander
             if "classification_report" in trained_res and isinstance(trained_res["classification_report"], dict):
                 with st.expander("Detailed Per-Class Precision / Recall / F1 Metrics Breakdown", expanded=False):
                     cr_data = trained_res["classification_report"]

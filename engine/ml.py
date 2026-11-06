@@ -8,7 +8,7 @@ import numpy as np
 import time
 from typing import Dict, Any, Tuple, Optional, List
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, KFold
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, LabelEncoder, OrdinalEncoder
@@ -18,7 +18,8 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import (
     accuracy_score, f1_score, precision_score, recall_score,
     mean_squared_error, r2_score, mean_absolute_error,
-    confusion_matrix, classification_report
+    confusion_matrix, classification_report,
+    roc_curve, roc_auc_score, precision_recall_curve, average_precision_score
 )
 from sklearn.cluster import KMeans
 import xgboost as xgb
@@ -187,6 +188,7 @@ def train_model(
     task: str,
     col_types: Dict[str, str],
     custom_splits: Optional[Tuple[pd.DataFrame, pd.DataFrame, Any, Any]] = None,
+    run_cross_validation: bool = False,
 ) -> Dict[str, Any]:
     """
     Trains a portfolio of baseline models (Linear/Logistic, Random Forest, XGBoost).
@@ -313,6 +315,21 @@ def train_model(
             train_time = round(time.time() - t0, 3)
             y_pred = pipe.predict(X_test)
 
+            cv_mean = None
+            cv_std = None
+            if run_cross_validation:
+                try:
+                    if task in ("binary_classification", "multiclass_classification"):
+                        cv_split = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+                        cv_scores = cross_val_score(pipe, X_clean, y_clean, cv=cv_split, scoring="accuracy")
+                    else:
+                        cv_split = KFold(n_splits=5, shuffle=True, random_state=42)
+                        cv_scores = cross_val_score(pipe, X_clean, y_clean, cv=cv_split, scoring="r2")
+                    cv_mean = round(float(cv_scores.mean()), 4)
+                    cv_std = round(float(cv_scores.std()), 4)
+                except Exception:
+                    pass
+
             if task == "regression":
                 r2 = float(r2_score(y_test, y_pred))
                 mse = float(mean_squared_error(y_test, y_pred))
@@ -325,8 +342,12 @@ def train_model(
                     "mae": round(mae, 4),
                     "train_time_sec": train_time
                 }
+                if cv_mean is not None:
+                    metrics["cv_mean"] = cv_mean
+                    metrics["cv_std"] = cv_std
+
                 results[name] = metrics
-                leaderboard.append({
+                lb_item = {
                     "model": name,
                     "primary_metric": round(r2, 4),
                     "primary_label": "R² Score",
@@ -335,7 +356,10 @@ def train_model(
                     "mae": round(mae, 4),
                     "train_time": f"{train_time}s",
                     "status": "Success"
-                })
+                }
+                if cv_mean is not None:
+                    lb_item["cv_score"] = f"{cv_mean:.4f} (±{cv_std:.4f})"
+                leaderboard.append(lb_item)
                 current_score = r2
             else:
                 acc = float(accuracy_score(y_test, y_pred))
@@ -350,8 +374,12 @@ def train_model(
                     "recall": round(rec, 4),
                     "train_time_sec": train_time
                 }
+                if cv_mean is not None:
+                    metrics["cv_mean"] = cv_mean
+                    metrics["cv_std"] = cv_std
+
                 results[name] = metrics
-                leaderboard.append({
+                lb_item = {
                     "model": name,
                     "primary_metric": round(acc, 4),
                     "primary_label": "Accuracy",
@@ -361,7 +389,10 @@ def train_model(
                     "recall": round(rec, 4),
                     "train_time": f"{train_time}s",
                     "status": "Success"
-                })
+                }
+                if cv_mean is not None:
+                    lb_item["cv_score"] = f"{cv_mean:.4f} (±{cv_std:.4f})"
+                leaderboard.append(lb_item)
                 current_score = acc
 
             if current_score > best_score:
@@ -442,7 +473,91 @@ def train_model(
                 "residuals": [round(float(yt - yp), 3) for yt, yp in zip(y_test[:200], best_y_pred[:200])]
             }
 
+        # ROC-AUC and Precision-Recall Curve (for Binary Classification)
+        if task == "binary_classification" and hasattr(best_pipeline, "predict_proba"):
+            try:
+                y_prob = best_pipeline.predict_proba(X_test)
+                if y_prob.shape[1] >= 2:
+                    pos_prob = y_prob[:, 1]
+                    fpr, tpr, _ = roc_curve(y_test, pos_prob)
+                    auc_val = float(roc_auc_score(y_test, pos_prob))
+                    prec, rec, _ = precision_recall_curve(y_test, pos_prob)
+                    avg_prec = float(average_precision_score(y_test, pos_prob))
+
+                    # Sample points evenly if array is long to prevent heavy UI serialization
+                    step_size = max(1, len(fpr) // 100)
+                    output["roc_curve"] = {
+                        "fpr": [round(float(v), 4) for v in fpr[::step_size]],
+                        "tpr": [round(float(v), 4) for v in tpr[::step_size]],
+                        "auc": round(auc_val, 4)
+                    }
+                    pr_step = max(1, len(prec) // 100)
+                    output["pr_curve"] = {
+                        "precision": [round(float(v), 4) for v in prec[::pr_step]],
+                        "recall": [round(float(v), 4) for v in rec[::pr_step]],
+                        "avg_precision": round(avg_prec, 4)
+                    }
+            except Exception:
+                pass
+
     return output
+
+
+def predict_single_instance(
+    pipeline: Any,
+    instance_dict: Dict[str, Any],
+    feature_cols: List[str],
+    col_types: Dict[str, str],
+    task: str,
+    label_encoder: Optional[LabelEncoder] = None
+) -> Dict[str, Any]:
+    """
+    Performs real-time live inference on a single user-configured observation.
+    Used by the What-If Live Prediction Simulator in Stage 5.
+    """
+    if pipeline is None:
+        return {"error": "No trained model pipeline available."}
+
+    input_df = pd.DataFrame([instance_dict])
+    for col in feature_cols:
+        if col not in input_df.columns:
+            ctype = col_types.get(col, "unknown")
+            input_df[col] = 0.0 if ctype == "numeric" else "Unknown"
+
+    input_clean = to_numpy_compatible_df(input_df[feature_cols], feature_cols, col_types)
+
+    try:
+        raw_pred = pipeline.predict(input_clean)[0]
+        result: Dict[str, Any] = {"raw_prediction": raw_pred}
+
+        if task in ("binary_classification", "multiclass_classification"):
+            if label_encoder is not None:
+                try:
+                    display_label = label_encoder.inverse_transform([int(raw_pred)])[0]
+                except Exception:
+                    display_label = str(raw_pred)
+            else:
+                display_label = str(raw_pred)
+            result["predicted_label"] = str(display_label)
+
+            if hasattr(pipeline, "predict_proba"):
+                try:
+                    probs = pipeline.predict_proba(input_clean)[0]
+                    classes = label_encoder.classes_ if label_encoder is not None else [f"Class {i}" for i in range(len(probs))]
+                    class_probs = {str(cls_name): round(float(p), 4) for cls_name, p in zip(classes, probs)}
+                    result["probabilities"] = class_probs
+                    result["confidence_pct"] = round(float(max(probs)) * 100, 1)
+                except Exception:
+                    result["confidence_pct"] = 100.0
+            else:
+                result["confidence_pct"] = 100.0
+        else:
+            result["predicted_value"] = round(float(raw_pred), 3)
+
+        return result
+    except Exception as e:
+        return {"error": f"Prediction failed: {str(e)}"}
+
 
 
 # ── Unsupervised Clustering ───────────────────────────────────────────────────

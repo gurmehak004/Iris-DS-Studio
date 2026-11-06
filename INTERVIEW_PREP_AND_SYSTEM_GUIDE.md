@@ -183,16 +183,18 @@ flowchart TD
 
 ### The 5-Stage Sequential Pipeline
 
-1. **Stage 1: Business Understanding & Data Ingestion**
-   - User uploads a `.csv` or `.xlsx` file, enters a public Google Sheet link, or selects a sample dataset (*Titanic*, *Customer Churn*, *California Housing*).
+1. **Stage 1: Business Understanding & Problem Formulation**
+   - User uploads a `.csv` or `.xlsx` file, enters a public Google Sheet link, or selects a benchmark dataset (*Titanic*, *Customer Churn*, *California Housing*).
    - Ingestion automatically determines character encoding, parses datetime formats, and runs rule-based semantic type inference across all columns.
-   - The user selects or auto-detects their target business variable (e.g., `churn`, `price`, `survived`).
+   - **Data Science Problem Formulation**: Upon target selection (e.g., `Churn`), Iris evaluates whether the problem is Binary Classification, Multiclass, or Regression, calculates class distribution and minority percentage, flags class imbalance, and detects non-predictive identifier columns to exclude from downstream modeling.
 
-2. **Stage 2: Data Cleaning & Preprocessing Studio**
-   - Computes a baseline **Data Health Score (0–100)** based on mathematical penalties for missing entries, duplicate rows, skewness, and outliers.
-   - Offers an **80/20 Train-Test Split (Data Leakage Guard)** to ensure zero test contamination.
-   - Offers guided and automated cleaning tools: Median/Mean/Mode imputation, IQR capping, categorical encoding, drop columns, and standardization.
-   - Maintains an append-only audit log: `st.session_state.cleaning_log`.
+2. **Stage 2: Data Cleaning & Preprocessing Studio (Prescription-Driven)**
+   - **Dataset Diagnostic Prescription**: Rather than forcing a novice user through 7 complex cleaning tabs trial-and-error, Iris analyzes the specific dataset across all 7 areas and explicitly badges each step:
+     - 🔴 `[ACTION REQUIRED]`: Features with missing values, duplicate rows, extreme outliers, or unhandled errors.
+     - 🟢 `[CLEAN (SKIP)]`: Areas where the dataset is already healthy and can be safely bypassed.
+     - ℹ️ `[OPTIONAL (AUTO IN STAGE 5)]`: Categorical encoding and feature scaling, which the Scikit-Learn `ColumnTransformer` handles automatically inside baseline pipelines.
+   - Features a 1-click **"Apply Prescribed Dataset Plan"** button to execute only necessary transformations in the correct statistical order.
+   - Computes a dynamic **Data Health Score (0–100)** and enforces the **80/20 Train-Test Split (Data Leakage Guard)**.
 
 3. **Stage 3: Automated Exploratory Data Analysis (EDA)**
    - Computes univariate summary statistics (Mean, Median, Standard Deviation, Skewness, Kurtosis, Value Counts).
@@ -204,9 +206,14 @@ flowchart TD
    - Features an on-the-fly **Feature Importance Screener** using a 15-tree Random Forest to show which features have predictive power before entering the full modeling stage.
    - Maintains `st.session_state.fe_log`.
 
-5. **Stage 5: Baseline ML, Code Export & Executive Reporting**
+5. **Stage 5: Baseline ML, Cross-Validation, Live Simulator & Reporting**
    - **Baseline Training Studio**: Automatically trains a portfolio of baseline models (Linear/Logistic Regression, Random Forest, XGBoost) using Scikit-Learn `Pipeline` and `ColumnTransformer`.
-   - Displays a live comparison leaderboard, confusion matrix, regression residual plots, and top 15 feature importances.
+   - **Statistical Validation**: Optional **5-Fold Stratified Cross-Validation** reporting mean scores and variance ($\mu \pm \sigma$).
+   - **Advanced Model Diagnostics**:
+     - Multiclass / Binary Confusion Matrix with heatmaps.
+     - **ROC-AUC Curves** and **Precision-Recall Curves** (crucial for imbalanced classification tasks).
+     - Regression residual plots and top 15 impurity-based feature importances.
+   - **Interactive What-If Live Prediction Simulator**: Allows evaluators to tweak input feature sliders/dropdowns in real-time and observe immediate model predictions, probabilities, and confidence scores.
    - **Artifact Generation**:
      - Standalone interactive HTML Dashboard with 8 sections.
      - Dark-mode executive PDF summary.
