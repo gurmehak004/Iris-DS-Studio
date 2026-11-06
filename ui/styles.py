@@ -25,15 +25,19 @@ html, body, [class*="css"] {
     --text-muted: #64748B;
 }
 
-/* Crisp White & Violet Grid Pattern Background */
-.stApp {
-    background-color: #FAFAFC !important;
+/* Engineering Blueprint Tech Grid Pattern (Fills empty white void) */
+.stApp, [data-testid="stAppViewContainer"], section.main {
+    background-color: #F8FAFC !important;
     background-image: 
-        radial-gradient(rgba(124, 58, 237, 0.12) 1.2px, transparent 1.2px),
-        linear-gradient(to right, rgba(124, 58, 237, 0.03) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(124, 58, 237, 0.03) 1px, transparent 1px) !important;
-    background-size: 24px 24px, 48px 48px, 48px 48px !important;
+        linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px) !important;
+    background-size: 28px 28px !important;
+    background-attachment: fixed !important;
     color: var(--text-main) !important;
+}
+
+.main .block-container {
+    background: transparent !important;
 }
 
 /* ── STRICT VIOLET BUTTON & CARD TEXT COLOR RULE ── */

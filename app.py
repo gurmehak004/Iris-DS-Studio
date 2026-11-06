@@ -937,7 +937,7 @@ with st.sidebar:
         num = i + 1
         if i < step_idx:
             # Completed — clickable
-            chk_icon = ICONS.get("check", "✓")
+            chk_icon = ICONS.get("check", "[OK]")
             st.markdown(f'<div class="sidebar-step-item sidebar-step-done"><div class="step-dot" style="background:#10B981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></div><div style="flex:1; font-size:0.82rem; font-weight:500; color:#94A3B8;"><span style="font-size:0.65rem; font-weight:700; color:#475569; letter-spacing:0.08em;">STEP {num}</span><br/>{label}</div><span style="display:flex; align-items:center; color:#10B981;">{chk_icon}</span></div>', unsafe_allow_html=True)
             # Invisible button for navigation
             if st.button(f"Go to {label}", key=f"side_nav_{sid}", use_container_width=True, help=f"Return to {label}"):
@@ -950,7 +950,7 @@ with st.sidebar:
             st.markdown(f'<div class="sidebar-step-item sidebar-step-active"><div class="step-dot"></div><div style="flex:1;"><span style="font-size:0.65rem; font-weight:700; color:#A78BFA; letter-spacing:0.08em;">STEP {num} — ACTIVE</span><br/>{label}</div><span style="display:flex; align-items:center; color:#A78BFA;">{arr_icon}</span></div>', unsafe_allow_html=True)
         else:
             # Locked
-            lck_icon = ICONS.get("lock", "🔒")
+            lck_icon = ICONS.get("lock", "")
             st.markdown(f'<div class="sidebar-step-item sidebar-step-locked"><div class="step-dot"></div><div style="flex:1;"><span style="font-size:0.65rem; font-weight:700; letter-spacing:0.08em;">STEP {num}</span><br/>{label}</div><span style="display:flex; align-items:center; opacity:0.4;">{lck_icon}</span></div>', unsafe_allow_html=True)
 
     # ── Download Links ────────────────────────────────────────────────────────
@@ -961,11 +961,11 @@ with st.sidebar:
 
     # ── Persistent Iris AI Assistant ──────────────────────────────────────────
     st.markdown("<div style='border-top:1px solid rgba(255,255,255,0.08); margin:12px 4px 6px;'></div>", unsafe_allow_html=True)
-    with st.expander("💬 Ask Iris AI Assistant", expanded=False):
+    with st.expander("Ask Iris AI Assistant", expanded=False):
         st.caption("Ask questions about your data, cleaning, transformations, or models anytime.")
         if S["chat_history"]:
             for msg in S["chat_history"][-3:]:
-                role_icon = "👤" if msg["role"] == "user" else "🌸"
+                role_icon = "User:" if msg["role"] == "user" else "Iris:"
                 st.markdown(f"**{role_icon} {'You' if msg['role'] == 'user' else 'Iris'}:** {msg['text']}")
         with st.form("sidebar_chat_form", clear_on_submit=True):
             side_q = st.text_input("Ask Iris:", placeholder="e.g. Which columns have outliers?", label_visibility="collapsed")
@@ -1048,7 +1048,7 @@ if S["step"] == "business_collection":
             is_sel = (selected_dom == key)
             b_type = "primary" if is_sel else "secondary"
             clean_name = d_info['name'].split('&')[0].strip()
-            b_label = f"✓ {d_info['icon']} {clean_name}" if is_sel else f"{d_info['icon']} {clean_name}"
+            b_label = f"[Selected] {clean_name}" if is_sel else clean_name
             with d_cols[idx]:
                 if st.button(b_label, type=b_type, use_container_width=True, key=f"dom_btn_{key}"):
                     S["domain"] = key
@@ -1067,7 +1067,7 @@ if S["step"] == "business_collection":
         for idx, (o_key, o_label) in enumerate(objs):
             is_sel = (selected_obj == o_key)
             b_type = "primary" if is_sel else "secondary"
-            lbl = f"✓ {o_label}" if is_sel else o_label
+            lbl = f"[Selected] {o_label}" if is_sel else o_label
             with o_cols[idx]:
                 if st.button(lbl, type=b_type, use_container_width=True, key=f"obj_{o_key}"):
                     S["objective"] = o_key
@@ -1186,7 +1186,7 @@ if S["step"] == "business_collection":
                 S["dataset_fingerprint"] = dataset_fingerprint
             file_name = uploaded.name.lower() if uploaded else ""
             try:
-                with st.spinner("Parsing dataset... 🌸"):
+                with st.spinner("Parsing dataset..."):
                     if file_name.endswith((".xlsx", ".xls")):
                         sheet_names = get_excel_sheet_names(file_bytes)
                         selected_sheet = st.selectbox(
@@ -1240,7 +1240,7 @@ if S["step"] == "business_collection":
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
                 <div>
                     <span style="font-size:0.75rem; font-weight:800; color:#6D28D9; text-transform:uppercase; letter-spacing:0.07em;">Data Science Problem Formulation</span>
-                    <div style="font-size:1.1rem; font-weight:900; color:#0F172A; margin-top:2px;">🎯 Target: <code>{selected_target}</code> &nbsp;•&nbsp; Task: <span style="color:#7C3AED;">{task_label}</span></div>
+                    <div style="font-size:1.1rem; font-weight:900; color:#0F172A; margin-top:2px;">Target: <code>{selected_target}</code> &nbsp;•&nbsp; Task: <span style="color:#7C3AED;">{task_label}</span></div>
                 </div>
                 <div style="background:#EDE9FE; color:#5B21B6; font-size:0.78rem; font-weight:800; padding:6px 12px; border-radius:20px;">
                     {task_info.get('reason', '')}
@@ -1258,7 +1258,7 @@ if S["step"] == "business_collection":
             if min_class_pct < 25.0:
                 st.markdown(f"""
                 <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px; padding:10px 14px; font-size:0.82rem; color:#92400E; margin-top:8px;">
-                    ⚠️ <strong>Class Imbalance Alert (Minority Class: {min_class_pct:.1f}%):</strong> Standard accuracy can be misleading on imbalanced datasets. 
+                    [Notice] <strong>Class Imbalance Alert (Minority Class: {min_class_pct:.1f}%):</strong> Standard accuracy can be misleading on imbalanced datasets. 
                     In Stage 2, stratified train/test partitioning is recommended, and Stage 5 will benchmark using <strong>Weighted F1-Score</strong> and <strong>Precision-Recall Curves</strong>.
                 </div>
                 """, unsafe_allow_html=True)
@@ -1275,7 +1275,7 @@ if S["step"] == "business_collection":
             id_list_str = ", ".join([f"<code>{c}</code>" for c in id_detected[:3]])
             st.markdown(f"""
             <div style="background:#F1F5F9; border:1px solid #CBD5E1; border-radius:8px; padding:8px 14px; font-size:0.8rem; color:#475569; margin-top:10px;">
-                🛡️ <strong>Identifier Feature Detected:</strong> {id_list_str} has 100% unique values. 
+                [Audit] <strong>Identifier Feature Detected:</strong> {id_list_str} has 100% unique values. 
                 Iris will exclude identifier columns from model feature inputs in Stage 5 to prevent artificial overfitting.
             </div>
             """, unsafe_allow_html=True)
@@ -1372,7 +1372,7 @@ elif S["step"] == "data_cleaning":
     render_health_scorecard(health["score"], health["missing_cols"], health["dup_rows"], health["outlier_cols"])
 
     # ── Data Leakage Prevention Guard: Train/Test Partitioning ────────────────
-    with st.expander("🛡️ Data Leakage Prevention: Train / Test Partitioning (80/20)", expanded=S.get("train_test_split_enabled", False)):
+    with st.expander("Data Leakage Prevention: Train / Test Partitioning (80/20)", expanded=S.get("train_test_split_enabled", False)):
         st.markdown(
             "<div style='font-size:0.86rem; color:#334155; margin-bottom:12px; line-height:1.6;'>"
             "In professional data science, computing imputations, outlier fences, and scaling parameters across "
@@ -1433,9 +1433,9 @@ elif S["step"] == "data_cleaning":
     st.markdown(f"""
     <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid #7C3AED; border-radius:10px; padding:16px 20px; margin:16px 0 20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
-            <div style="font-weight:800; color:#5B21B6; font-size:1.0rem;">📋 Stage 2 Action Plan: Dataset Diagnostic Prescription</div>
+            <div style="font-weight:800; color:#5B21B6; font-size:1.0rem;">Stage 2 Action Plan: Dataset Diagnostic Prescription</div>
             <div style="font-size:0.8rem; background:{'#FEF2F2' if prescription.get('has_actions') else '#F0FDF4'}; color:{'#DC2626' if prescription.get('has_actions') else '#16A34A'}; font-weight:800; padding:4px 10px; border-radius:12px; border:1px solid {'#FECACA' if prescription.get('has_actions') else '#BBF7D0'};">
-                {'⚠️ Actions Required' if prescription.get('has_actions') else '✅ Dataset Clean'}
+                {' Actions Required' if prescription.get('has_actions') else ' Dataset Clean'}
             </div>
         </div>
         <div style="color:#334155; font-size:0.85rem; line-height:1.65; margin-bottom:12px;">
@@ -1565,22 +1565,22 @@ elif S["step"] == "data_cleaning":
     </div>
     """, unsafe_allow_html=True)
 
-    p1_ic = p_plan.get(1, {}).get("icon", "⚠️" if _miss_count > 0 else "✅")
-    p2_ic = p_plan.get(2, {}).get("icon", "⚠️" if _dup_count > 0 else "✅")
-    p3_ic = p_plan.get(3, {}).get("icon", "🟡" if _out_count > 0 else "✅")
-    p4_ic = p_plan.get(4, {}).get("icon", "⚠️" if _struct_count > 0 else "✅")
-    p5_ic = p_plan.get(5, {}).get("icon", "ℹ️")
-    p6_ic = p_plan.get(6, {}).get("icon", "ℹ️")
-    p7_ic = p_plan.get(7, {}).get("icon", "✅")
+    p1_ic = ""
+    p2_ic = ""
+    p3_ic = ""
+    p4_ic = ""
+    p5_ic = ""
+    p6_ic = ""
+    p7_ic = ""
 
     t_miss, t_dup, t_out, t_struct, t_enc, t_scale, t_red = st.tabs([
-        f"1. Missing Values {p1_ic}",
-        f"2. Duplicates {p2_ic}",
-        f"3. Treat Outliers {p3_ic}",
-        f"4. Structural Errors {p4_ic}",
-        f"5. Categorical Encoding {p5_ic}",
-        f"6. Feature Scaling {p6_ic}",
-        f"7. Data Reduction {p7_ic}"
+        "1. Missing Values",
+        "2. Duplicates",
+        "3. Treat Outliers",
+        "4. Structural Errors",
+        "5. Categorical Encoding",
+        "6. Feature Scaling",
+        "7. Data Reduction"
     ], key="cleaning_workflow_tabs", on_change="rerun")
 
 
@@ -1613,30 +1613,30 @@ elif S["step"] == "data_cleaning":
                     st.toast("Imputed numeric features with mean!")
                     st.rerun()
             with g3:
-                if st.button("🏷️ Categorical → Mode", use_container_width=True, key="btn_imp_mode"):
+                if st.button("Categorical → Mode", use_container_width=True, key="btn_imp_mode"):
                     for c, ct in S["col_types"].items():
                         if ct in ("categorical", "boolean") and S["df"][c].isnull().sum() > 0:
                             S["df"], msg = impute_missing(S["df"], c, "mode")
                             S["cleaning_log"].append(msg)
                     S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
-                    st.toast("Imputed categorical features with mode!", icon="🏷️")
+                    st.toast("Imputed categorical features with mode!")
                     st.rerun()
             with g4:
-                if st.button("🗑️ Drop Sparse Columns (>40%)", use_container_width=True, key="btn_drop_sparse"):
+                if st.button("Drop Sparse Columns (>40%)", use_container_width=True, key="btn_drop_sparse"):
                     S["df"], msg = drop_sparse_columns(S["df"], 40.0)
                     S["col_types"] = infer_all_types(S["df"])
                     S["cleaning_log"].append(msg)
                     S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
-                    st.toast(msg, icon="🗑️")
+                    st.toast(msg)
                     st.rerun()
             with g5:
-                if st.button("❌ Drop Rows with Nulls", use_container_width=True, key="btn_drop_null_rows"):
+                if st.button("Drop Rows with Nulls", use_container_width=True, key="btn_drop_null_rows"):
                     n_before = len(S["df"])
                     S["df"] = S["df"].dropna().reset_index(drop=True)
                     msg = f"Dropped {n_before - len(S['df'])} rows with missing values."
                     S["cleaning_log"].append(msg)
                     S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
-                    st.toast(msg, icon="❌")
+                    st.toast(msg)
                     st.rerun()
 
             st.markdown("<br>**Per-Column Targeted Imputation:**", unsafe_allow_html=True)
@@ -1644,15 +1644,15 @@ elif S["step"] == "data_cleaning":
             imp_method = st.selectbox("Imputation Method:", ["median", "mean", "mode", "constant", "ffill", "drop_rows", "drop_column"], key="select_imp_method")
             const_val = st.text_input("Constant value (if method='constant'):", value="0", key="input_const_val") if imp_method == "constant" else None
 
-            if st.button("✨ Apply Imputation", type="primary", key="btn_apply_single_imp"):
+            if st.button("Apply Imputation", type="primary", key="btn_apply_single_imp"):
                 S["df"], msg = impute_missing(S["df"], col_target, imp_method, fill_value=const_val)
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
                 S["quality"] = cached_quality_report(S["df"], _col_types_key(S["col_types"]))
-                st.toast(msg, icon="✨")
+                st.toast(msg)
                 st.rerun()
         else:
-            st.success("🎉 Complete Dataset: Zero missing values detected.")
+            st.success("Complete Dataset: Zero missing values detected.")
 
         if df.isnull().any().any():
             st.markdown("<br>**Missing Heatmap:**", unsafe_allow_html=True)
@@ -1823,7 +1823,7 @@ elif S["step"] == "data_cleaning":
 
                 c_info, c_action = st.columns([3, 1])
                 with c_info:
-                    st.markdown(f"**{c_name}** ({n_u} unique categories) → 💡 **{m_name}**")
+                    st.markdown(f"**{c_name}** ({n_u} unique categories) → **{m_name}**")
                     st.caption(reason)
                 with c_action:
                     if st.button(f"Apply to {c_name}", key=f"btn_apply_enc_{c_name}", use_container_width=True):
@@ -1866,7 +1866,7 @@ elif S["step"] == "data_cleaning":
 
                 c_info, c_action = st.columns([3, 1])
                 with c_info:
-                    st.markdown(f"**{c_name}** [Range: {min_v:.1f} to {max_v:.1f}] → 💡 **{m_name}**")
+                    st.markdown(f"**{c_name}** [Range: {min_v:.1f} to {max_v:.1f}] → **{m_name}**")
                     st.caption(reason)
                 with c_action:
                     if m_code != "none":
@@ -1877,7 +1877,7 @@ elif S["step"] == "data_cleaning":
                             st.toast(msg)
                             st.rerun()
                     else:
-                        st.caption("✅ Scaled")
+                        st.caption("Scaled")
                 st.markdown("<hr style='border-color:rgba(6,182,212,0.1); margin:8px 0;'>", unsafe_allow_html=True)
         else:
             st.info("No numeric features remaining for scaling.")
@@ -2246,7 +2246,7 @@ elif S["step"] == "feature_engineering":
             with p_c2:
                 st.markdown(f"<span style='background:{b_color}18; color:{b_color}; border:1px solid {b_color}44; border-radius:6px; padding:2px 8px; font-size:0.75rem; font-weight:800;'>{badge}</span> <span style='font-size:0.83rem; color:#475569;'>{it.get('reason', '')}</span>", unsafe_allow_html=True)
             with p_c3:
-                if st.button(f"⚡ Auto-Apply", key=f"btn_ind_plan_{col_name}_{t_key}_{idx}", use_container_width=True):
+                if st.button(f"Auto-Apply", key=f"btn_ind_plan_{col_name}_{t_key}_{idx}", use_container_width=True):
                     new_df, status_msg = apply_transformation(df, col_name, t_key)
                     S["df"] = new_df
                     S["col_types"] = infer_all_types(new_df)
@@ -2274,7 +2274,7 @@ elif S["step"] == "feature_engineering":
             cols_btn = st.columns(len(action_options))
             for i, act in enumerate(action_options):
                 with cols_btn[i]:
-                    if st.button(f"⚡ {act['label']}", key=f"quick_act_{target_col_to_encode}_{act['key']}", use_container_width=True, help=act.get("badge")):
+                    if st.button(f"{act['label']}", key=f"quick_act_{target_col_to_encode}_{act['key']}", use_container_width=True, help=act.get("badge")):
                         new_df, status_msg = apply_transformation(df, target_col_to_encode, act["key"])
                         S["df"] = new_df
                         S["col_types"] = infer_all_types(new_df)
@@ -2285,7 +2285,7 @@ elif S["step"] == "feature_engineering":
             st.info("No automatic encoding actions defined for this data type.")
 
         # Drop feature button
-        if st.button(f"🗑️ Drop Column '{target_col_to_encode}'", key=f"btn_drop_ind_{target_col_to_encode}"):
+        if st.button(f"Drop Column '{target_col_to_encode}'", key=f"btn_drop_ind_{target_col_to_encode}"):
             new_df, status_msg = apply_transformation(df, target_col_to_encode, "drop")
             S["df"] = new_df
             S["col_types"] = infer_all_types(new_df)
@@ -2623,7 +2623,7 @@ elif S["step"] == "communication":
                     <span style="background:{m_bg}; color:{m_color}; border:1px solid {m_color}55;
                                  border-radius:20px; padding:4px 12px; font-size:0.75rem; font-weight:800;
                                  letter-spacing:0.04em;">{suit_label}</span>
-                    <h3 style="color:#1E293B; font-size:1.1rem; font-weight:800; margin:8px 0 2px;">{'⚡' if 'Primary' in suit_label else ('✅' if 'Baseline' in suit_label else '🔷')} {model['name']}</h3>
+                    <h3 style="color:#1E293B; font-size:1.1rem; font-weight:800; margin:8px 0 2px;">{'' if 'Primary' in suit_label else ('' if 'Baseline' in suit_label else '')} {model['name']}</h3>
                     <span style="color:#64748B; font-size:0.8rem; font-weight:600;">{model['category']}</span>
                 </div>
                 <div style="text-align:right;">
@@ -2672,7 +2672,7 @@ elif S["step"] == "communication":
 
     t_btn_col1, t_btn_col2 = st.columns([3, 1])
     with t_btn_col1:
-        if st.button("⚡ Train Baseline Models (Leaderboard, Confusion Matrix & Feature Importances)", type="primary", use_container_width=True, key="btn_run_baseline_training"):
+        if st.button("Train Baseline Models (Leaderboard, Confusion Matrix & Feature Importances)", type="primary", use_container_width=True, key="btn_run_baseline_training"):
             with st.spinner("Training baseline machine learning models across Scikit-Learn and XGBoost..."):
                 active_target = S.get("target_col") or auto_detect_target(df, S["col_types"])
                 task_res = recommend_task(df, active_target, S["col_types"])
@@ -2716,7 +2716,7 @@ elif S["step"] == "communication":
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
                         <span style="font-size:0.75rem; font-weight:800; color:#059669; text-transform:uppercase; letter-spacing:0.06em;">Top Performing Baseline Model</span>
-                        <div style="font-size:1.15rem; font-weight:900; color:#064E3B; margin-top:2px;">⭐ {best_m}</div>
+                        <div style="font-size:1.15rem; font-weight:900; color:#064E3B; margin-top:2px;">Top Model: {best_m}</div>
                     </div>
                     <div style="display:flex; gap:20px;">
                         <div style="text-align:right;">
@@ -2733,11 +2733,11 @@ elif S["step"] == "communication":
             """, unsafe_allow_html=True)
 
             # Leaderboard Table
-            st.markdown("#### 🏆 Baseline Model Leaderboard")
+            st.markdown("#### Baseline Model Leaderboard")
             lb_rows = []
             for idx, item in enumerate(trained_res["leaderboard"]):
                 is_win = idx == 0 and item["status"] == "Success"
-                win_badge = " ⭐ (Winner)" if is_win else ""
+                win_badge = " (Top Model)" if is_win else ""
                 row_dict = {
                     "Rank": f"#{idx+1}",
                     "Model": item["model"] + win_badge,
@@ -2820,7 +2820,7 @@ elif S["step"] == "communication":
             # ROC-AUC & Precision-Recall Diagnostic Curves
             if "roc_curve" in trained_res or "pr_curve" in trained_res:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("#### 📈 Advanced Model Diagnostics: ROC-AUC & Precision-Recall Curves")
+                st.markdown("#### Advanced Model Diagnostics: ROC-AUC & Precision-Recall Curves")
                 curve_col1, curve_col2 = st.columns(2)
                 with curve_col1:
                     if "roc_curve" in trained_res:
@@ -2849,7 +2849,7 @@ elif S["step"] == "communication":
             # Interactive What-If Live Prediction Simulator
             if trained_res.get("best_pipeline") is not None and trained_res.get("feature_cols"):
                 st.markdown("<br>", unsafe_allow_html=True)
-                with st.expander("🧪 Interactive What-If Simulator: Test Live Predictions on Best Model", expanded=True):
+                with st.expander("Interactive What-If Simulator: Test Live Predictions on Best Model", expanded=True):
                     st.markdown(f"Configure custom input features below to simulate real-time predictions using **{best_m}**.")
                     
                     feat_cols = trained_res["feature_cols"]
@@ -2874,7 +2874,7 @@ elif S["step"] == "communication":
                                     unq_vals = ["Unknown"]
                                 sim_inputs[col] = st.selectbox(col, unq_vals, index=0, key=f"sim_{col}")
 
-                    if st.button("🚀 Run Live Prediction Simulation", type="primary", use_container_width=True, key="btn_run_sim"):
+                    if st.button("Run Live Prediction Simulation", type="primary", use_container_width=True, key="btn_run_sim"):
                         with st.spinner("Executing model inference..."):
                             sim_out = predict_single_instance(
                                 trained_res["best_pipeline"],
