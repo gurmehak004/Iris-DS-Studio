@@ -39,14 +39,14 @@ def _load_application_modules():
     global clean_structural_errors, convert_column_type, encode_categorical, scale_feature
     global drop_constant_features, drop_high_correlation_features, get_encoding_suggestions, auto_encode_all_categorical
     global get_scaling_suggestions, auto_scale_all_numeric, detect_cleaning_recommendations, compute_data_health_score
-    global get_before_after_stats, detect_structural_errors
+    global get_before_after_stats, detect_structural_errors, generate_dataset_cleaning_prescription
     global generate_eda_chart_recommendations, build_eda_standalone_dashboard, build_custom_chart
     global get_feature_engineering_suggestions, apply_transformation, auto_engineer_all_features, generate_fe_plan
     global create_interaction_features, quick_feature_importance, get_individual_column_options
     global explain_file_overview, explain_data_quality, explain_column, explain_correlations, chat_with_iris
     global generate_executive_summary, generate_stage_insights, is_gemini_api_key_configured, review_model_recommendations
     global recommend_ml_models, inject_custom_css
-    global train_model, auto_detect_target, recommend_task, generate_pipeline_script, generate_pipeline_notebook
+    global train_model, auto_detect_target, recommend_task, generate_pipeline_script, generate_pipeline_notebook, predict_single_instance
     global render_kpi_card, render_iris_says, render_stage_header, render_health_scorecard, render_recommendation_card
     global render_data_preview_table, render_styled_dataframe, render_section_header, ICONS, scroll_to_top
 
