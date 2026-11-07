@@ -455,19 +455,89 @@ def drop_constant_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
     return new_df, "No constant columns found."
 
 
-def drop_high_correlation_features(df: pd.DataFrame, threshold: float = 0.90) -> Tuple[pd.DataFrame, str]:
+def drop_high_correlation_features(
+    df: pd.DataFrame,
+    threshold: float = 0.90,
+    target_col: Optional[str] = None
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Intelligently reduces multicollinearity by dropping redundant collinear features (|r| > threshold).
+    Guarantees:
+    1. NEVER drops the target column (or its encoded variants).
+    2. Handles derived scale twins (_minmax, _scaled, _standardized): if both raw and scaled exist,
+       drops the unscaled duplicate rather than eliminating the entire feature concept.
+    3. For distinct collinear feature pairs (e.g. loan_amount vs luxury_assets_value),
+       drops at most ONE feature concept, never both.
+    """
     new_df = df.copy()
     num_cols = new_df.select_dtypes(include=[np.number]).columns.tolist()
     if len(num_cols) < 2:
         return new_df, "Need at least 2 numeric columns for correlation reduction."
 
-    corr_matrix = new_df[num_cols].corr().abs()
-    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-    
-    to_drop = [column for column in upper_tri.columns if any(upper_tri[column] > threshold)]
-    if to_drop:
-        new_df = new_df.drop(columns=to_drop)
-        return new_df, f"Data Reduction: Dropped {len(to_drop)} redundant collinear features (|r| > {threshold}): {', '.join(to_drop)}"
+    # Identify protected target columns
+    protected = set()
+    if target_col:
+        protected.add(target_col)
+        for sfx in ("_encoded", "_binary", "_label", "_scaled", "_minmax"):
+            protected.add(f"{target_col}{sfx}")
+
+    # Derived suffixes
+    derived_suffixes = ("_minmax", "_scaled", "_standardized", "_zscore", "_normalized")
+    to_drop = set()
+
+    # Step A: Handle twin derived scaling columns (r == 1.00)
+    # If base and base_scaled both exist, drop the raw base column (preserving user's scaling choice)
+    for col in num_cols:
+        for sfx in derived_suffixes:
+            if col.endswith(sfx):
+                base = col[:-len(sfx)]
+                if base in num_cols:
+                    if base in protected:
+                        to_drop.add(col)
+                    else:
+                        to_drop.add(base)
+
+    # Step B: Correlation matrix on remaining candidate columns
+    remaining_cols = [c for c in num_cols if c not in to_drop]
+    if len(remaining_cols) >= 2:
+        corr_matrix = new_df[remaining_cols].corr().abs()
+
+        # Iterate over pairs sorted by correlation descending
+        pairs = []
+        for i in range(len(remaining_cols)):
+            for j in range(i + 1, len(remaining_cols)):
+                c1, c2 = remaining_cols[i], remaining_cols[j]
+                r_val = corr_matrix.loc[c1, c2]
+                if pd.notna(r_val) and r_val > threshold:
+                    pairs.append((c1, c2, float(r_val)))
+
+        pairs.sort(key=lambda x: x[2], reverse=True)
+
+        # For each collinear pair, drop at most ONE of them (protecting target and retained features)
+        for c1, c2, r_val in pairs:
+            if c1 in to_drop or c2 in to_drop:
+                # One of them is already dropped, collinearity is resolved!
+                continue
+
+            # If one is protected, drop the other
+            if c1 in protected and c2 not in protected:
+                to_drop.add(c2)
+            elif c2 in protected and c1 not in protected:
+                to_drop.add(c1)
+            elif c1 not in protected and c2 not in protected:
+                # Drop the one with higher average correlation to other features
+                mean_corr_1 = corr_matrix[c1].mean()
+                mean_corr_2 = corr_matrix[c2].mean()
+                if mean_corr_1 >= mean_corr_2:
+                    to_drop.add(c1)
+                else:
+                    to_drop.add(c2)
+
+    # Apply drop
+    drop_list = [c for c in to_drop if c in new_df.columns]
+    if drop_list:
+        new_df = new_df.drop(columns=drop_list)
+        return new_df, f"Data Reduction: Dropped {len(drop_list)} redundant collinear features (|r| > {threshold}): {', '.join(drop_list)}"
     return new_df, f"No feature pairs exceeded correlation threshold of {threshold}."
 
 

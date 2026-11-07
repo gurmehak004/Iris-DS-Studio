@@ -117,7 +117,7 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
     )
     if any(term in q for term in data_overview_terms) or q in ("data", "dataset", "info", "overview"):
         lines = []
-        lines.append("### 📊 Dataset Profile & Structural Overview\n")
+        lines.append("### Dataset Profile & Structural Overview\n")
         lines.append(f"- **Scale:** **{row_count:,} rows** × **{total_cols} columns / features**.")
         lines.append(f"- **Feature Breakdown:** **{num_cols}** numeric features, **{cat_cols}** categorical / text features.")
 
@@ -125,14 +125,14 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
         if isinstance(row_count, (int, float)) and row_count > 0 and total_cols > 0:
             if total_cols >= row_count * 0.4 or (total_cols >= 40 and row_count <= 250):
                 lines.append(
-                    f"\n⚠️ **High-Dimensionality Warning ($p \\approx n$):** You have {total_cols} features for only {row_count} observations. "
+                    f"\n[Warning] **High-Dimensionality ($p \\approx n$):** You have {total_cols} features for only {row_count} observations. "
                     "When the feature count approaches the sample size, standard algorithms face the *curse of dimensionality* and severe overfitting risk. "
                     "**Recommended Strategy:** In Stage 4 (Feature Engineering), prioritize feature selection—drop low-variance features and redundant correlated columns. "
                     "In Stage 5, favor regularized models (L1 Lasso, Random Forest with constrained `max_depth` and cross-validation) rather than complex unconstrained models."
                 )
 
         if target:
-            lines.append(f"\n🎯 **Target Variable:** **`{target}`** (Inferred Type: *{target_type.title()}*)")
+            lines.append(f"\n**Target Variable:** **`{target}`** (Inferred Type: *{target_type.title()}*)")
             if target_type in ("categorical", "boolean"):
                 unique_c = stats.get('unique', 'multiple')
                 top_v = stats.get('top_value', 'N/A')
@@ -146,7 +146,7 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
                     f"- **Objective:** Estimate continuous numerical values (Mean: {stats.get('mean', 'N/A')}, Median: {stats.get('median', 'N/A')})."
                 )
         else:
-            lines.append("\n🎯 **Target Variable:** Not selected yet. Choose a target column in Stage 1 or Stage 5 to unlock predictive modeling.")
+            lines.append("\n**Target Variable:** Not selected yet. Choose a target column in Stage 1 or Stage 5 to unlock predictive modeling.")
 
         if columns:
             preview_cols = [f"`{col}` ({k})" for col, k in list(columns.items())[:10]]
@@ -154,7 +154,7 @@ def _answer_chat_locally(question: str, dataset_context: str) -> Optional[str]:
             lines.append(f"\n**Sample Features:** {', '.join(preview_cols)}{suffix}")
 
         lines.append(
-            "\n💡 **Next Step in Iris:** Review data quality in **Stage 2 (Cleaning)** to verify missing values and duplicate rows, "
+            "\n[Recommendation] **Next Step in Iris:** Review data quality in **Stage 2 (Cleaning)** to verify missing values and duplicate rows, "
             "then proceed to **Stage 3 (Distributions)** to examine distributions and correlations."
         )
         return "\n".join(lines)
@@ -444,7 +444,7 @@ Pipeline Stats:
 Write no more than 150 words. Mention only facts present in the statistics, clearly state
 that no model was trained, and give one practical next step. Use short headings.
 """
-    fallback = f"""### 📄 Executive Summary Briefing
+    fallback = f"""### Executive Summary Briefing
 
 **Dataset:** {pipeline_stats.get('domain', 'General')} Data Analysis  
 **Scope:** {pipeline_stats.get('total_rows', 0):,} records analyzed across {pipeline_stats.get('total_cols', 0)} features.

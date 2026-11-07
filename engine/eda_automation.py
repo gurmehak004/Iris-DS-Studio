@@ -516,7 +516,11 @@ def build_eda_standalone_dashboard(df: pd.DataFrame, col_types: Dict[str, str], 
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
-    background: var(--bg);
+    background-color: var(--bg);
+    background-image: linear-gradient(rgba(124, 58, 237, 0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(124, 58, 237, 0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
     color: var(--text);
     font-family: 'Inter', -apple-system, sans-serif;
     font-size: 14px;
@@ -650,10 +654,10 @@ def build_eda_standalone_dashboard(df: pd.DataFrame, col_types: Dict[str, str], 
 
 <header class="header">
   <div>
-    <h1>📊 Interactive EDA Charts Dashboard</h1>
+    <h1>Interactive EDA Charts Dashboard</h1>
     <p>Automated EDA Analysis & Visual Insights &nbsp;·&nbsp; {total_rows:,} rows × {total_cols} columns &nbsp;·&nbsp; {now_str}</p>
   </div>
-  <div class="iris-badge">🌸 Iris Studio</div>
+  <div class="iris-badge">Iris Studio</div>
 </header>
 
 <main>

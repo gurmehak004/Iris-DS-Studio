@@ -1908,7 +1908,7 @@ elif S["step"] == "data_cleaning":
             </div>
             """, unsafe_allow_html=True)
             if st.button("Drop Redundant Collinear Features (1-Click)", use_container_width=True, key="btn_drop_high_corr"):
-                S["df"], msg = drop_high_correlation_features(S["df"], 0.90)
+                S["df"], msg = drop_high_correlation_features(S["df"], 0.90, S.get("target_col"))
                 S["col_types"] = infer_all_types(S["df"])
                 S["cleaning_log"].append(msg)
                 st.toast(msg)

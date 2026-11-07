@@ -316,7 +316,7 @@ def generate_pipeline_notebook(
             "cell_type": "markdown",
             "metadata": {},
             "source": [
-                "# 🌸 Iris Data Science Studio - Automated Pipeline\n",
+                "# Iris Data Science Studio - Automated Pipeline\n",
                 f"**Generated:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>\n",
                 f"**Dataset:** `{dataset_name}` | **Target:** `{clean_target}` (`{clean_task}`)\n",
                 "\n",

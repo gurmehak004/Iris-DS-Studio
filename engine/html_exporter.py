@@ -165,7 +165,7 @@ def build_html_dashboard(
         sec_overview += _render_table(preview_df)
 
     if iris_says.get("overview"):
-        sec_overview += f'<div class="iris-insight">🌸 <strong>Iris AI Briefing:</strong> {iris_says["overview"]}</div>'
+        sec_overview += f'<div class="iris-insight"><strong>[Iris AI Briefing]</strong> {iris_says["overview"]}</div>'
 
     # ── 2. DATA HEALTH SCORECARD & AUDIT ──────────────────────────────────────
     sec_health = ""
@@ -194,7 +194,7 @@ def build_html_dashboard(
         sec_health += '<h3 class="sub-header">Missing Values by Feature</h3>'
         sec_health += _render_table(miss_df)
     else:
-        sec_health += '<div class="success-banner">✅ Zero Missing Values: Dataset is 100% complete across all attributes!</div>'
+        sec_health += '<div class="success-banner">[Clean] Zero Missing Values: Dataset is 100% complete across all attributes!</div>'
 
     # Outliers Table
     outlier_df = quality.get("outliers", pd.DataFrame())
@@ -209,7 +209,7 @@ def build_html_dashboard(
         sec_health += _render_table(skew_df)
 
     if iris_says.get("quality"):
-        sec_health += f'<div class="iris-insight">🌸 <strong>Iris AI Audit Note:</strong> {iris_says["quality"]}</div>'
+        sec_health += f'<div class="iris-insight"><strong>[Iris AI Audit Note]</strong> {iris_says["quality"]}</div>'
 
     # ── 3. DATA CLEANING & PREPROCESSING LOG ──────────────────────────────────
     sec_cleaning = ""
@@ -324,7 +324,7 @@ def build_html_dashboard(
         sec_corr = '<p style="color:#9CA3AF;">Need at least 2 numerical features for correlation analysis.</p>'
 
     if iris_says.get("correlations"):
-        sec_corr += f'<div class="iris-insight">🌸 <strong>Iris AI Correlation Finding:</strong> {iris_says["correlations"]}</div>'
+        sec_corr += f'<div class="iris-insight"><strong>[Iris AI Correlation Finding]</strong> {iris_says["correlations"]}</div>'
 
     # ── 6. FEATURE ENGINEERING LAB ────────────────────────────────────────────
     sec_fe = ""
@@ -409,7 +409,7 @@ def build_html_dashboard(
                     "Training Latency": item.get("train_time", "0s"),
                     "Execution Status": item.get("status", "Success")
                 })
-            sec_ml += '<h3 class="sub-header">🏆 Model Performance Leaderboard</h3>'
+            sec_ml += '<h3 class="sub-header">Model Performance Leaderboard</h3>'
             sec_ml += _render_table(pd.DataFrame(lb_rows))
 
         # Diagnostic Visualizations
@@ -500,7 +500,11 @@ def build_html_dashboard(
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
-    background: var(--bg);
+    background-color: var(--bg);
+    background-image: linear-gradient(rgba(124, 58, 237, 0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(124, 58, 237, 0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
     color: var(--text);
     font-family: 'Inter', -apple-system, sans-serif;
     font-size: 14px;
@@ -790,63 +794,63 @@ def build_html_dashboard(
 
 <header class="header">
   <div class="header-left">
-    <h1>🌸 Iris Data Science Dashboard</h1>
+    <h1>Iris Data Science Dashboard</h1>
     <p>Dataset: <strong style="color:var(--text);">{orig_filename}</strong>
        &nbsp;·&nbsp; Generated: {now_str}
        &nbsp;·&nbsp; {cleaned_rows:,} rows × {cleaned_cols} features</p>
   </div>
-  <div class="iris-badge">🌸 Iris Studio</div>
+  <div class="iris-badge">Iris Studio</div>
 </header>
 
 <nav>
-  <a href="#s-business">📋 Business & Data</a>
-  <a href="#s-health">🛡️ Quality & Health</a>
-  <a href="#s-cleaning">🧹 Cleaning Log</a>
-  <a href="#s-eda">📊 Exploratory Analysis</a>
-  <a href="#s-corr">🔗 Correlations</a>
-  <a href="#s-fe">⚙️ Feature Engineering</a>
-  <a href="#s-ml">🤖 Machine Learning Baselines</a>
-  <a href="#s-code">💻 Python Pipeline Code</a>
+  <a href="#s-business">[Business & Data]</a>
+  <a href="#s-health">[Quality & Health]</a>
+  <a href="#s-cleaning">[Cleaning Log]</a>
+  <a href="#s-eda">[Exploratory Analysis]</a>
+  <a href="#s-corr">[Correlations]</a>
+  <a href="#s-fe">[Feature Engineering]</a>
+  <a href="#s-ml">[Machine Learning]</a>
+  <a href="#s-code">[Python Pipeline]</a>
 </nav>
 
 <main>
   <section class="section" id="s-business">
-    <div class="section-title"><span>📋</span> Business Understanding & Data Ingestion</div>
+    <div class="section-title"><span style="color:var(--purple); font-weight:700;">[Data]</span> Business Understanding & Data Ingestion</div>
     {sec_overview}
   </section>
 
   <section class="section" id="s-health">
-    <div class="section-title"><span>🛡️</span> Data Quality & Health Scorecard</div>
+    <div class="section-title"><span style="color:var(--green); font-weight:700;">[Quality]</span> Data Quality & Health Scorecard</div>
     {sec_health}
   </section>
 
   <section class="section" id="s-cleaning">
-    <div class="section-title"><span>🧹</span> Data Cleaning Execution Log</div>
+    <div class="section-title"><span style="color:var(--cyan); font-weight:700;">[Cleaning]</span> Data Cleaning Execution Log</div>
     {sec_cleaning}
   </section>
 
   <section class="section" id="s-eda">
-    <div class="section-title"><span>📊</span> Exploratory Data Analysis (EDA)</div>
+    <div class="section-title"><span style="color:var(--purple); font-weight:700;">[EDA]</span> Exploratory Data Analysis (EDA)</div>
     {sec_eda}
   </section>
 
   <section class="section" id="s-corr">
-    <div class="section-title"><span>🔗</span> Correlations & Bivariate Relationships</div>
+    <div class="section-title"><span style="color:var(--pink); font-weight:700;">[Correlations]</span> Correlations & Bivariate Relationships</div>
     {sec_corr}
   </section>
 
   <section class="section" id="s-fe">
-    <div class="section-title"><span>⚙️</span> Feature Engineering Strategy & Log</div>
+    <div class="section-title"><span style="color:var(--cyan); font-weight:700;">[Engineering]</span> Feature Engineering Strategy & Log</div>
     {sec_fe}
   </section>
 
   <section class="section" id="s-ml">
-    <div class="section-title"><span>🤖</span> Machine Learning Baselines & Diagnostics</div>
+    <div class="section-title"><span style="color:var(--purple); font-weight:700;">[Modeling]</span> Machine Learning Baselines & Diagnostics</div>
     {sec_ml}
   </section>
 
   <section class="section" id="s-code">
-    <div class="section-title"><span>💻</span> Reproducible Python Pipeline Script</div>
+    <div class="section-title"><span style="color:var(--green); font-weight:700;">[Code]</span> Reproducible Python Pipeline Script</div>
     {sec_code}
   </section>
 </main>
