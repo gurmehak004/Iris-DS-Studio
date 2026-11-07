@@ -1980,19 +1980,33 @@ elif S["step"] == "eda":
 
 
 
-    try:
-        eda_html_str = build_eda_standalone_dashboard(df, col_types, S["col_stats"], S["corr"], eda_recs)
-        st.download_button(
-            "Export Standalone EDA Charts Dashboard (HTML)",
-            data=eda_html_str,
-            file_name="iris_eda_charts_dashboard.html",
-            mime="text/html",
-            type="primary",
-            use_container_width=True,
-            key="btn_download_eda_html"
+    with st.expander("Export Standalone Interactive EDA Dashboard (HTML)", expanded=False):
+        st.markdown(
+            "<div style='font-size:0.85rem; color:#475569; margin-bottom:12px;'>"
+            "Compile all recommended charts, distributions, and correlation matrices into a single, offline, self-contained HTML file."
+            "</div>",
+            unsafe_allow_html=True
         )
-    except Exception as e:
-        st.error(f"Error generating EDA dashboard HTML: {e}")
+        exp_col1, exp_col2 = st.columns([1, 1])
+        with exp_col1:
+            if st.button("Compile Standalone EDA HTML Dashboard", key="btn_compile_eda_html", use_container_width=True):
+                with st.spinner("Compiling interactive HTML report..."):
+                    try:
+                        S["cached_eda_html"] = build_eda_standalone_dashboard(df, col_types, S["col_stats"], S["corr"], eda_recs)
+                        st.toast("EDA Dashboard HTML compiled successfully!")
+                    except Exception as e:
+                        st.error(f"Error generating EDA dashboard HTML: {e}")
+        with exp_col2:
+            if S.get("cached_eda_html"):
+                st.download_button(
+                    "Download iris_eda_charts_dashboard.html",
+                    data=S["cached_eda_html"],
+                    file_name="iris_eda_charts_dashboard.html",
+                    mime="text/html",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_download_eda_html"
+                )
 
     st.markdown("<br>", unsafe_allow_html=True)
     tab_auto_charts, tab_col_explorer, tab_corr_matrix, tab_custom_studio = st.tabs([
@@ -2012,11 +2026,16 @@ elif S["step"] == "eda":
         for rec in eda_recs:
             grouped_recs[rec['category']].append(rec)
             
-        for category, recs in grouped_recs.items():
+        cat_options = ["All Recommendations"] + sorted(list(grouped_recs.keys()))
+        selected_cat = st.radio("Filter Category:", cat_options, horizontal=True, key="rad_eda_cat_filter")
+        
+        filtered_groups = grouped_recs if selected_cat == "All Recommendations" else {selected_cat: grouped_recs[selected_cat]}
+
+        for category, recs in filtered_groups.items():
             st.markdown(f"#### {category}")
-            st.markdown("<hr style='border-color:rgba(255,255,255,0.06); margin:8px 0 24px;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='border-color:rgba(226,232,240,0.8); margin:8px 0 20px;'>", unsafe_allow_html=True)
             
-            # Display charts in a 2-column grid to look more like a dashboard
+            # Display charts in a 2-column grid
             for i in range(0, len(recs), 2):
                 cols = st.columns(2)
                 for j in range(2):
@@ -2024,19 +2043,19 @@ elif S["step"] == "eda":
                         rec = recs[i+j]
                         with cols[j]:
                             st.markdown(f"""
-                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-top:3px solid #7C3AED; border-radius:14px; padding:18px; margin-bottom:12px; box-shadow:0 4px 14px rgba(0,0,0,0.03);">
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-top:3px solid #7C3AED; border-radius:14px; padding:16px; margin-bottom:12px; box-shadow:0 2px 8px rgba(0,0,0,0.02);">
                                 <div style="display:flex; gap:6px; margin-bottom:8px;">
                                     <span class="type-badge" style="background:#F3E8FF; color:#6D28D9; border:1px solid #DDD6FE; font-size:0.7rem; padding:3px 10px; font-weight:700;">{rec['chart_type']}</span>
                                 </div>
-                                <div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-bottom:4px; line-height:1.2;">{rec['title']}</div>
-                                <div style="color:#475569; font-size:0.78rem;">Chart Columns: <strong style="color:#0F172A;">{', '.join(rec['columns'])}</strong></div>
+                                <div style="font-size:1.0rem; font-weight:800; color:#0F172A; margin-bottom:4px; line-height:1.2;">{rec['title']}</div>
+                                <div style="color:#475569; font-size:0.75rem;">Features: <strong style="color:#0F172A;">{', '.join(rec['columns'])}</strong></div>
                             </div>
                             """, unsafe_allow_html=True)
                             
                             st.plotly_chart(rec["fig"], use_container_width=True, config={"displayModeBar": "hover", "displaylogo": False})
                             
                             st.markdown(f"""
-                            <div class="why-card" style="font-size:0.84rem; padding:14px 18px; margin-bottom:32px; background:#F8FAFC; border:1px solid #E2E8F0; border-left:3px solid #0891B2; border-radius:0 10px 10px 0; color:#334155;">
+                            <div class="why-card" style="font-size:0.82rem; padding:12px 16px; margin-bottom:28px; background:#F8FAFC; border:1px solid #E2E8F0; border-left:3px solid #0891B2; border-radius:0 8px 8px 0; color:#334155;">
                                 <strong style="color:#0F172A;">Why are we making this chart?</strong><br>
                                 {rec['why']}
                             </div>
@@ -2071,16 +2090,17 @@ elif S["step"] == "eda":
                 on_change="rerun",
             )
             with t1:
-                fig = px.histogram(plot_df, x=selected_col, nbins=40, color_discrete_sequence=["#7C3AED"], marginal="rug")
+                # Clean histogram with box marginal (fast, readable, avoids thousands of rug ticks)
+                fig = px.histogram(plot_df, x=selected_col, nbins=28, color_discrete_sequence=["#7C3AED"], marginal="box")
                 mean_val = s.mean()
                 med_val = s.median()
                 fig.add_vline(x=float(mean_val), line_dash="dash", line_color="#DB2777", line_width=2)
                 fig.add_vline(x=float(med_val), line_dash="dot", line_color="#0891B2", line_width=2)
                 fig.add_annotation(
-                    text=f"<span style='color:#DB2777; font-weight:bold;'>■ Mean:</span> {float(mean_val):.2f} &nbsp;|&nbsp; <span style='color:#0891B2; font-weight:bold;'>● Median:</span> {float(med_val):.2f}",
+                    text=f"<span style='color:#DB2777; font-weight:bold;'>Mean:</span> {float(mean_val):.2f} &nbsp;|&nbsp; <span style='color:#0891B2; font-weight:bold;'>Median:</span> {float(med_val):.2f}",
                     xref="paper", yref="paper",
-                    x=0.98, y=1.02,
-                    xanchor="right", yanchor="bottom",
+                    x=0.98, y=0.92,
+                    xanchor="right", yanchor="top",
                     showarrow=False,
                     font=dict(size=11, color="#334155", family="Inter, sans-serif"),
                     bgcolor="rgba(241, 245, 249, 0.95)",
@@ -2088,14 +2108,15 @@ elif S["step"] == "eda":
                     borderwidth=1,
                     borderpad=4
                 )
-                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), margin=dict(t=50, b=40, l=45, r=25))
+                fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), margin=dict(t=35, b=40, l=45, r=25))
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": "hover", "displaylogo": False})
             with t2:
                 fig = px.violin(plot_df, y=selected_col, box=True, points="outliers", color_discrete_sequence=["#0891B2"])
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t3:
-                fig = px.box(plot_df, y=selected_col, points="all", color_discrete_sequence=["#DB2777"])
+                # Outlier points only to prevent DOM freezing on thousands of rows
+                fig = px.box(plot_df, y=selected_col, points="outliers", color_discrete_sequence=["#DB2777"])
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t4:
@@ -2104,7 +2125,8 @@ elif S["step"] == "eda":
                 lo, hi = q1v - 1.5*iqrv, q3v + 1.5*iqrv
                 color = s.apply(lambda v: "Outlier" if v < lo or v > hi else "Normal")
                 tmp = pd.DataFrame({"value": s, "type": color})
-                fig = px.strip(tmp, y="value", color="type", color_discrete_map={"Normal":"#7C3AED", "Outlier":"#DB2777"})
+                sample_tmp = tmp.sample(min(len(tmp), 400), random_state=42) if len(tmp) > 400 else tmp
+                fig = px.strip(sample_tmp, y="value", color="type", color_discrete_map={"Normal":"#7C3AED", "Outlier":"#DB2777"})
                 fig.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"))
                 st.plotly_chart(fig, use_container_width=True)
             with t5:
@@ -2113,10 +2135,11 @@ elif S["step"] == "eda":
                     cmp_col = st.selectbox("Compare with numeric feature (Y-Axis):", other_num_cols, key=f"cmp_{selected_col}")
                     s_cmp = pd.to_numeric(df[cmp_col], errors="coerce")
                     pair_df = pd.DataFrame({selected_col: s, cmp_col: s_cmp}).dropna()
+                    pair_plot_df = pair_df.sample(min(len(pair_df), 800), random_state=42) if len(pair_df) > 800 else pair_df
                     try:
-                        fig_cmp = px.scatter(pair_df, x=selected_col, y=cmp_col, trendline="ols", color_discrete_sequence=["#7C3AED"], trendline_color_override="#0891B2")
+                        fig_cmp = px.scatter(pair_plot_df, x=selected_col, y=cmp_col, trendline="ols", color_discrete_sequence=["#7C3AED"], trendline_color_override="#0891B2")
                     except Exception:
-                        fig_cmp = px.scatter(pair_df, x=selected_col, y=cmp_col, color_discrete_sequence=["#7C3AED"])
+                        fig_cmp = px.scatter(pair_plot_df, x=selected_col, y=cmp_col, color_discrete_sequence=["#7C3AED"])
                     fig_cmp.update_layout(plot_bgcolor="#FAFAFC", paper_bgcolor="#FFFFFF", font=dict(color="#0F172A"), title=f"Scatter Trend: {selected_col} vs {cmp_col}")
                     st.plotly_chart(fig_cmp, use_container_width=True)
                 else:

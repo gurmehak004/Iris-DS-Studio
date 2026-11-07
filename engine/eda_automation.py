@@ -70,8 +70,15 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
     datetime_cols= [c for c, t in col_types.items() if t == "datetime" and c in df.columns]
     text_cols    = [c for c, t in col_types.items() if t == "text" and c in df.columns]
 
-    # 1. UNIVARIATE NUMERIC DISTRIBUTIONS & INDIVIDUAL BOXPLOTS
-    for col in numeric_cols:
+    # 1. UNIVARIATE NUMERIC DISTRIBUTIONS & INDIVIDUAL BOXPLOTS (Prioritize top 6 to prevent UI freeze)
+    # Sort numeric columns by analytical priority (skewness & variance)
+    sorted_numeric = sorted(
+        numeric_cols,
+        key=lambda c: abs(float(col_stats.get(c, {}).get("skewness", 0.0) or 0.0)),
+        reverse=True
+    )[:6]
+
+    for col in sorted_numeric:
         col_s = df[col].iloc[:, 0] if isinstance(df[col], pd.DataFrame) else df[col]
         s = pd.to_numeric(col_s, errors="coerce").dropna()
         if len(s) < 4:
@@ -83,16 +90,16 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
 
         plot_df = pd.DataFrame({col: s})
         
-        # 1a. Histogram with Central Tendency Reference Lines & Rug (no duplicate/colliding text)
-        fig = px.histogram(plot_df, x=col, nbins=35, marginal="rug", color_discrete_sequence=[PURPLE])
+        # 1a. Clean Histogram with Box Marginal (Fast, elegant, and avoids thousands of rug ticks)
+        fig = px.histogram(plot_df, x=col, nbins=28, marginal="box", color_discrete_sequence=[PURPLE])
         try:
             fig.add_vline(x=float(mean_v), line_dash="dash", line_color=PINK, line_width=2)
             fig.add_vline(x=float(med_v), line_dash="dot", line_color=CYAN, line_width=2)
             fig.add_annotation(
-                text=f"<span style='color:{PINK}; font-weight:bold;'>■ Mean:</span> {float(mean_v):.2f} &nbsp;|&nbsp; <span style='color:{CYAN}; font-weight:bold;'>● Median:</span> {float(med_v):.2f}",
+                text=f"<span style='color:{PINK}; font-weight:bold;'>Mean:</span> {float(mean_v):.2f} &nbsp;|&nbsp; <span style='color:{CYAN}; font-weight:bold;'>Median:</span> {float(med_v):.2f}",
                 xref="paper", yref="paper",
-                x=0.98, y=1.02,
-                xanchor="right", yanchor="bottom",
+                x=0.98, y=0.92,
+                xanchor="right", yanchor="top",
                 showarrow=False,
                 font=dict(size=11, color="#334155", family="Inter, sans-serif"),
                 bgcolor="rgba(241, 245, 249, 0.95)",
@@ -113,7 +120,7 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
         recommendations.append({
             "id": f"num_dist_{col}",
             "title": f"Numeric Distribution — {col}",
-            "chart_type": "Histogram & Rug Plot",
+            "chart_type": "Distribution Histogram with Box Marginal",
             "columns": [col],
             "category": "Univariate Numeric",
             "why": why_text,
@@ -216,16 +223,19 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             if len(pairs_to_plot) >= 4:
                 break
 
-    for c1, c2, r_val in pairs_to_plot:
+    for c1, c2, r_val in pairs_to_plot[:4]:
         try:
             s1 = df[c1].iloc[:, 0] if isinstance(df[c1], pd.DataFrame) else df[c1]
             s2 = df[c2].iloc[:, 0] if isinstance(df[c2], pd.DataFrame) else df[c2]
             sc_df = pd.DataFrame({c1: pd.to_numeric(s1, errors="coerce"), c2: pd.to_numeric(s2, errors="coerce")}).dropna()
+            
+            # Subsample for smooth, lag-free 60fps rendering on datasets with thousands of rows
+            sc_plot_df = sc_df.sample(min(len(sc_df), 800), random_state=42) if len(sc_df) > 800 else sc_df
 
             try:
-                fig_sc = px.scatter(sc_df, x=c1, y=c2, trendline="ols", color_discrete_sequence=[PURPLE], trendline_color_override=CYAN)
+                fig_sc = px.scatter(sc_plot_df, x=c1, y=c2, trendline="ols", color_discrete_sequence=[PURPLE], trendline_color_override=CYAN)
             except Exception:
-                fig_sc = px.scatter(sc_df, x=c1, y=c2, color_discrete_sequence=[PURPLE])
+                fig_sc = px.scatter(sc_plot_df, x=c1, y=c2, color_discrete_sequence=[PURPLE])
 
             title_r = f" (r = {r_val:.3f})" if r_val != 0.0 else ""
             _styled_fig(fig_sc, f"Bivariate Scatter: {c1} vs {c2}{title_r}")
@@ -251,7 +261,8 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             splom_cols = numeric_cols[:4]
             splom_df = df[splom_cols].apply(pd.to_numeric, errors="coerce").dropna()
             if len(splom_df) > 5:
-                fig_splom = px.scatter_matrix(splom_df, dimensions=splom_cols, color_discrete_sequence=[PURPLE])
+                splom_plot_df = splom_df.sample(min(len(splom_df), 350), random_state=42) if len(splom_df) > 350 else splom_df
+                fig_splom = px.scatter_matrix(splom_plot_df, dimensions=splom_cols, color_discrete_sequence=[PURPLE])
                 _styled_fig(fig_splom, "Pairwise Scatter Matrix (SPLOM)")
                 recommendations.append({
                     "id": "scatter_matrix_splom",
@@ -564,7 +575,7 @@ def build_eda_standalone_dashboard(df: pd.DataFrame, col_types: Dict[str, str], 
             </div>
 
             <div class="why-box">
-                <div class="why-title">❓ Why are we making this chart?</div>
+                <div class="why-title">Why are we making this chart?</div>
                 <div class="why-text">{rec['why']}</div>
             </div>
         </div>
