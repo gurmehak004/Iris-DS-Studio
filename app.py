@@ -20,6 +20,7 @@ import plotly.graph_objects as go
 import sys
 import importlib
 from pathlib import Path
+from typing import Optional, Dict, List, Any, Tuple
 
 # Ensure application root directory is firmly at the beginning of sys.path
 _APP_ROOT = str(Path(__file__).resolve().parent)
