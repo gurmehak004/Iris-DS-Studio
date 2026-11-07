@@ -87,8 +87,25 @@ def all_column_stats(df: pd.DataFrame, col_types: Dict[str, str]) -> Dict[str, D
     return res
 
 
-def correlation_matrix(df: pd.DataFrame, col_types: Dict[str, str]) -> Dict[str, Any]:
-    numeric_cols = [c for c, t in col_types.items() if t == "numeric"]
+def correlation_matrix(df: pd.DataFrame, col_types: Dict[str, str], filter_derived: bool = True) -> Dict[str, Any]:
+    numeric_cols = [c for c, t in col_types.items() if t == "numeric" and c in df.columns]
+    
+    # Filter out duplicate derived scaling/encoding columns when the raw base feature is present
+    if filter_derived:
+        derived_suffixes = ("_minmax", "_scaled", "_standardized", "_zscore", "_normalized")
+        clean_numeric_cols = []
+        for col in numeric_cols:
+            is_derived = False
+            for sfx in derived_suffixes:
+                if col.endswith(sfx):
+                    base = col[:-len(sfx)]
+                    if base in numeric_cols:
+                        is_derived = True
+                        break
+            if not is_derived:
+                clean_numeric_cols.append(col)
+        numeric_cols = clean_numeric_cols
+
     if len(numeric_cols) < 2:
         return {"pearson": None, "spearman": None, "top_pairs": []}
 

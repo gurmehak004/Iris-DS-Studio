@@ -876,16 +876,14 @@ def cached_correlation_matrix(df: pd.DataFrame, col_types_json: str):
 
 
 @st.cache_data(show_spinner=False)
-def cached_eda_chart_recommendations(df: pd.DataFrame, col_types_json: str):
-    """Cache the full EDA chart suite (Plotly figure objects).
+def cached_eda_chart_recommendations(df: pd.DataFrame, col_types_json: str, target_col: Optional[str] = None):
+    """Cache the curated EDA chart suite (Plotly figure objects).
     col_stats and corr are recomputed inside to keep args hashable.
-    The double computation is fine because cached_col_stats/cached_correlation_matrix
-    are themselves cached and will return instantly on the second call.
     """
     col_types = json.loads(col_types_json)
     col_stats = all_column_stats(df, col_types)
     corr = correlation_matrix(df, col_types)
-    return generate_eda_chart_recommendations(df, col_types, col_stats, corr)
+    return generate_eda_chart_recommendations(df, col_types, col_stats, corr, target_col)
 
 
 def _col_types_key(col_types: dict) -> str:
@@ -1976,7 +1974,7 @@ elif S["step"] == "eda":
         </div>
         """, unsafe_allow_html=True)
 
-    eda_recs = cached_eda_chart_recommendations(df, _col_types_key(col_types))
+    eda_recs = cached_eda_chart_recommendations(df, _col_types_key(col_types), S.get("target_col"))
 
 
 
@@ -2183,7 +2181,7 @@ elif S["step"] == "eda":
         with c_opt1:
             chart_kind = st.selectbox(
                 "Choose Chart Type:",
-                ["Scatter Plot", "Distribution Histogram", "Box Plot", "Violin Plot", "Line Trend Chart", "Bar Chart", "2D Density Heatmap"],
+                ["Countplot (Category Frequency)", "Scatter Plot", "Distribution Histogram", "Box Plot", "Violin Plot", "Line Trend Chart", "Bar Chart", "2D Density Heatmap"],
                 key="custom_chart_type"
             )
         with c_opt2:

@@ -61,22 +61,170 @@ def _styled_fig(fig, title: str = ""):
     return fig
 
 
-def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, str], col_stats: Dict[str, Any], corr_res: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Generates structured chart recommendations with analytical rationales."""
+def generate_eda_chart_recommendations(
+    df: pd.DataFrame,
+    col_types: Dict[str, str],
+    col_stats: Dict[str, Any],
+    corr_res: Dict[str, Any],
+    target_col: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Generates a focused, curated set of high-value EDA charts with statistical rationales."""
     recommendations = []
     
-    numeric_cols = [c for c, t in col_types.items() if t == "numeric" and c in df.columns]
-    cat_cols     = [c for c, t in col_types.items() if t in ("categorical", "boolean") and c in df.columns]
+    # ── Base Column Filtering ───────────────────────────────────────────────────
+    # Exclude redundant derived columns (_minmax, _scaled, _encoded) when original base feature exists
+    raw_numeric  = [c for c, t in col_types.items() if t == "numeric" and c in df.columns]
+    raw_cat      = [c for c, t in col_types.items() if t in ("categorical", "boolean") and c in df.columns]
     datetime_cols= [c for c, t in col_types.items() if t == "datetime" and c in df.columns]
-    text_cols    = [c for c, t in col_types.items() if t == "text" and c in df.columns]
 
-    # 1. UNIVARIATE NUMERIC DISTRIBUTIONS & INDIVIDUAL BOXPLOTS (Prioritize top 6 to prevent UI freeze)
-    # Sort numeric columns by analytical priority (skewness & variance)
+    derived_suffixes = ("_minmax", "_scaled", "_standardized", "_zscore", "_normalized", "_encoded", "_ohe", "_label")
+    numeric_cols = []
+    for c in raw_numeric:
+        is_derived = False
+        for sfx in derived_suffixes:
+            if c.endswith(sfx) and c[:-len(sfx)] in raw_numeric:
+                is_derived = True
+                break
+        if not is_derived:
+            numeric_cols.append(c)
+
+    cat_cols = []
+    for c in raw_cat:
+        is_derived = False
+        for sfx in derived_suffixes:
+            if c.endswith(sfx) and c[:-len(sfx)] in raw_cat:
+                is_derived = True
+                break
+        if not is_derived:
+            cat_cols.append(c)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 1. TARGET VARIABLE ANALYSIS (High-Priority Real Data Science EDA)
+    # ─────────────────────────────────────────────────────────────────────────
+    has_target = target_col is not None and target_col in df.columns
+    if has_target:
+        tgt_s = df[target_col].dropna()
+        is_discrete_target = col_types.get(target_col) in ("categorical", "boolean") or tgt_s.nunique() <= 10
+
+        if is_discrete_target:
+            # 1a. Target Class Countplot with Counts and Percentages
+            vc = tgt_s.astype(str).value_counts().reset_index()
+            vc.columns = ["Target Class", "Count"]
+            total_rows = vc["Count"].sum()
+            vc["Percentage"] = (vc["Count"] / total_rows * 100).round(1).astype(str) + "%"
+            vc["Label"] = vc["Count"].astype(str) + " (" + vc["Percentage"] + ")"
+
+            fig_tgt = px.bar(
+                vc,
+                x="Target Class",
+                y="Count",
+                text="Label",
+                color="Target Class",
+                color_discrete_sequence=[PURPLE, CYAN, AMBER, PINK, GREEN]
+            )
+            fig_tgt.update_traces(textposition="outside")
+            _styled_fig(fig_tgt, f"Target Class Balance — {target_col}")
+
+            maj_ratio = (vc["Count"].max() / total_rows) * 100 if total_rows > 0 else 0
+            why_tgt = f"Visualizes class frequencies of prediction target '{target_col}'. Dominant class comprises {maj_ratio:.1f}% of observations. "
+            if maj_ratio > 65:
+                why_tgt += "Moderate-to-high class imbalance detected; stratified cross-validation and evaluation metrics like PR-AUC are vital."
+            else:
+                why_tgt += "Class distribution is balanced across the problem space."
+
+            recommendations.append({
+                "id": "target_countplot",
+                "title": f"Target Class Distribution — {target_col}",
+                "chart_type": "Target Countplot with % Share",
+                "columns": [target_col],
+                "category": "Target Variable Deep-Dive",
+                "why": why_tgt,
+                "fig": fig_tgt
+            })
+
+            # 1b. Categorical Feature vs Target Countplots (Hue Grouped Bar)
+            pred_cat_cols = [c for c in cat_cols if c != target_col][:2]
+            for cat_c in pred_cat_cols:
+                try:
+                    cat_s = df[cat_c].dropna().astype(str)
+                    top_vals = cat_s.value_counts().head(6).index.tolist()
+                    sub_grp = df[df[cat_c].isin(top_vals)][[cat_c, target_col]].dropna()
+                    if len(sub_grp) > 0:
+                        fig_grp_cat = px.histogram(
+                            sub_grp,
+                            x=cat_c,
+                            color=target_col,
+                            barmode="group",
+                            color_discrete_sequence=[PURPLE, CYAN, PINK, AMBER],
+                        )
+                        _styled_fig(fig_grp_cat, f"{cat_c} vs {target_col} (Grouped Countplot)")
+                        recommendations.append({
+                            "id": f"countplot_{cat_c}_by_target",
+                            "title": f"{cat_c} vs {target_col} — Grouped Countplot",
+                            "chart_type": "Grouped Feature Countplot (hue=Target)",
+                            "columns": [cat_c, target_col],
+                            "category": "Target Variable Deep-Dive",
+                            "why": f"Compares how classes of '{target_col}' distribute across categories of '{cat_c}'. Asymmetry in bar proportions highlights strong predictive signal.",
+                            "fig": fig_grp_cat
+                        })
+                except Exception:
+                    pass
+
+            # 1c. Numeric Features vs Target (Grouped Boxplots / Distribution)
+            pred_num_cols = [c for c in numeric_cols if c != target_col][:2]
+            for num_c in pred_num_cols:
+                try:
+                    sub_num = df[[num_c, target_col]].dropna()
+                    sub_num[num_c] = pd.to_numeric(sub_num[num_c], errors="coerce")
+                    sub_num = sub_num.dropna()
+                    if len(sub_num) > 0:
+                        fig_num_tgt = px.box(
+                            sub_num,
+                            x=target_col,
+                            y=num_c,
+                            color=target_col,
+                            points="outliers",
+                            color_discrete_sequence=[PURPLE, CYAN, PINK, AMBER]
+                        )
+                        fig_num_tgt.update_layout(showlegend=False)
+                        _styled_fig(fig_num_tgt, f"{num_c} Distribution across {target_col}")
+                        recommendations.append({
+                            "id": f"box_{num_c}_by_target",
+                            "title": f"{num_c} Separation across {target_col}",
+                            "chart_type": "Grouped Boxplot by Target",
+                            "columns": [num_c, target_col],
+                            "category": "Target Variable Deep-Dive",
+                            "why": f"Evaluates how continuous predictor '{num_c}' differentiates across '{target_col}' classes. Distinct medians and non-overlapping IQRs reveal top classification drivers.",
+                            "fig": fig_num_tgt
+                        })
+                except Exception:
+                    pass
+
+        else:
+            # Continuous Target Distribution
+            t_s = pd.to_numeric(tgt_s, errors="coerce").dropna()
+            fig_ctgt = px.histogram(pd.DataFrame({target_col: t_s}), x=target_col, nbins=28, marginal="box", color_discrete_sequence=[PURPLE])
+            _styled_fig(fig_ctgt, f"Continuous Target Distribution — {target_col}")
+            recommendations.append({
+                "id": "target_continuous_dist",
+                "title": f"Target Distribution — {target_col}",
+                "chart_type": "Continuous Target Histogram & Box",
+                "columns": [target_col],
+                "category": "Target Variable Deep-Dive",
+                "why": f"Examines central tendency, spread, and normality of continuous target '{target_col}'.",
+                "fig": fig_ctgt
+            })
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2. CORE UNIVARIATE DISTRIBUTIONS (Non-Target Numeric Columns)
+    # ─────────────────────────────────────────────────────────────────────────
+    # Select top 2 non-target numeric columns by skewness to prevent chart overload
+    candidate_num = [c for c in numeric_cols if c != target_col]
     sorted_numeric = sorted(
-        numeric_cols,
+        candidate_num,
         key=lambda c: abs(float(col_stats.get(c, {}).get("skewness", 0.0) or 0.0)),
         reverse=True
-    )[:6]
+    )[:2]
 
     for col in sorted_numeric:
         col_s = df[col].iloc[:, 0] if isinstance(df[col], pd.DataFrame) else df[col]
@@ -89,8 +237,6 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
         med_v = stats.get("median", s.median())
 
         plot_df = pd.DataFrame({col: s})
-        
-        # 1a. Clean Histogram with Box Marginal (Fast, elegant, and avoids thousands of rug ticks)
         fig = px.histogram(plot_df, x=col, nbins=28, marginal="box", color_discrete_sequence=[PURPLE])
         try:
             fig.add_vline(x=float(mean_v), line_dash="dash", line_color=PINK, line_width=2)
@@ -111,125 +257,66 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             pass
         _styled_fig(fig, f"Distribution Histogram — {col}")
 
-        why_text = f"Analyzes central tendency (mean={mean_v:.2f}, median={med_v:.2f}) and distribution spread. "
+        why_text = f"Analyzes central tendency (mean={mean_v:.2f}, median={med_v:.2f}) and spread. "
         if abs(skew) > 1.0:
-            why_text += f"Highlight: Significant skewness ({skew:.2f}) indicates an asymmetrical tail requiring transformation."
+            why_text += f"Highlight: Skewness ({skew:.2f}) indicates an asymmetrical tail requiring transformation."
         else:
-            why_text += f"Highlight: Relatively balanced symmetric distribution (skewness = {skew:.2f})."
+            why_text += f"Highlight: Symmetric distribution (skewness = {skew:.2f})."
 
         recommendations.append({
             "id": f"num_dist_{col}",
-            "title": f"Numeric Distribution — {col}",
+            "title": f"Distribution — {col}",
             "chart_type": "Distribution Histogram with Box Marginal",
             "columns": [col],
-            "category": "Univariate Numeric",
+            "category": "Univariate Distributions",
             "why": why_text,
             "fig": fig
         })
 
-        # 1b. Individual Outlier Boxplot for each numeric column
-        fig_ind_box = px.box(plot_df, y=col, points="outliers", color_discrete_sequence=[CYAN])
-        _styled_fig(fig_ind_box, f"Outlier & Spread Boxplot — {col}")
-        recommendations.append({
-            "id": f"num_box_{col}",
-            "title": f"Spread & Quartiles — {col}",
-            "chart_type": "Box Plot with Outliers",
-            "columns": [col],
-            "category": "Univariate Numeric",
-            "why": f"Identifies IQR spread, median ({med_v:.2f}), and anomalies lying beyond 1.5x IQR boundaries.",
-            "fig": fig_ind_box
-        })
-
-    # 2. NUMERIC BOXPLOTS & OUTLIER STRIPS (COMPARATIVE)
-    if len(numeric_cols) >= 2:
-        try:
-            num_sub = df[numeric_cols].loc[:, ~df[numeric_cols].columns.duplicated()]
-            num_sub = num_sub.apply(pd.to_numeric, errors="coerce")
-            fig_box = px.box(num_sub, color_discrete_sequence=PALETTE)
-            _styled_fig(fig_box, "Numeric Features Boxplot & Outlier Comparison")
-            recommendations.append({
-                "id": "all_num_boxplot",
-                "title": "Numeric Features Variance & Outliers",
-                "chart_type": "Comparative Box Plots",
-                "columns": numeric_cols,
-                "category": "Univariate Numeric",
-                "why": "Compares scale differences, interquartile ranges (IQR), and extreme anomalies across all numerical variables.",
-                "fig": fig_box
-            })
-        except Exception:
-            pass
-
-    # 3. CATEGORICAL BAR CHARTS
-    for col in cat_cols:
-        col_s = df[col].iloc[:, 0] if isinstance(df[col], pd.DataFrame) else df[col]
-        vc = col_s.value_counts().head(12).reset_index()
-        vc.columns = ["Category", "Count"]
-        if len(vc) == 0:
-            continue
-
-        fig = px.bar(vc, x="Count", y="Category", orientation="h", color="Count", color_continuous_scale=[CARD_BG, CYAN])
-        fig.update_layout(coloraxis_showscale=False, yaxis={"categoryorder": "total ascending", "title": col})
-        _styled_fig(fig, f"Frequency Distribution — {col}")
-
-        nu = col_s.nunique()
-        n_u = int(nu.iloc[0]) if isinstance(nu, (pd.Series, np.ndarray)) else int(nu)
-        why_text = f"Visualizes frequency breakdown across top categories. Total unique categories = {n_u}. "
-        why_text += "Helps identify dominant categories and potential class imbalance."
-
-        recommendations.append({
-            "id": f"cat_bar_{col}",
-            "title": f"Value Frequency — {col}",
-            "chart_type": "Horizontal Bar Chart",
-            "columns": [col],
-            "category": "Univariate Categorical",
-            "why": why_text,
-            "fig": fig
-        })
-
-    # 4. CORRELATION MATRIX HEATMAP
+    # ─────────────────────────────────────────────────────────────────────────
+    # 3. CORRELATION MATRIX & TOP MULTIVARIATE RELATIONSHIPS
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pearson Correlation Matrix (Cleaned of duplicate scaled columns)
     if len(numeric_cols) >= 2 and corr_res.get("pearson") is not None:
         try:
             corr_mat = corr_res["pearson"].fillna(0)
-            fig_cm = px.imshow(corr_mat, text_auto=".2f", color_continuous_scale="Viridis", zmin=-1, zmax=1)
-            _styled_fig(fig_cm, "Pearson Correlation Heatmap")
-            recommendations.append({
-                "id": "corr_matrix_heatmap",
-                "title": "Pairwise Correlation Matrix",
-                "chart_type": "Heatmap",
-                "columns": numeric_cols,
-                "category": "Multivariate Relationships",
-                "why": "Quantifies linear relationships between all numerical features. Red/green highlights indicate strong positive or negative collinearity.",
-                "fig": fig_cm
-            })
+            clean_corr_cols = [c for c in corr_mat.columns if c in numeric_cols]
+            if len(clean_corr_cols) >= 2:
+                corr_sub = corr_mat.loc[clean_corr_cols, clean_corr_cols]
+                fig_cm = px.imshow(corr_sub, text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1)
+                _styled_fig(fig_cm, "Pearson Correlation Heatmap")
+                recommendations.append({
+                    "id": "corr_matrix_heatmap",
+                    "title": "Pairwise Correlation Matrix",
+                    "chart_type": "Correlation Heatmap",
+                    "columns": clean_corr_cols,
+                    "category": "Multivariate Relationships",
+                    "why": "Quantifies linear collinearity between clean numerical features without derived duplicates. Highlights multi-collinearity risks.",
+                    "fig": fig_cm
+                })
         except Exception:
             pass
 
-    # 5. BIVARIATE SCATTER PLOTS WITH TRENDLINES (NUMERIC vs NUMERIC)
-    # Ensure scatter plots are ALWAYS created when 2+ numeric columns exist!
-    pairs_to_plot = []
+    # Top Bivariate Scatter Plot with Trendline (Exclude identity / collinear twin columns)
     top_pairs = corr_res.get("top_pairs", [])
-    for p in top_pairs[:6]:
-        pairs_to_plot.append((p["col1"], p["col2"], p.get("pearson_r", 0.0)))
+    valid_pairs = []
+    for p in top_pairs:
+        c1, c2, r = p.get("col1"), p.get("col2"), p.get("pearson_r", 0.0)
+        # Avoid duplicate collinear scaled columns (|r| >= 0.999)
+        if c1 in numeric_cols and c2 in numeric_cols and abs(r) < 0.999:
+            valid_pairs.append((c1, c2, r))
+        if len(valid_pairs) >= 2:
+            break
 
-    # If top_pairs has fewer than 2 items, add sequential pairs from numeric_cols
-    if len(pairs_to_plot) < 2 and len(numeric_cols) >= 2:
-        for i in range(len(numeric_cols)):
-            for j in range(i + 1, min(len(numeric_cols), i + 3)):
-                c1, c2 = numeric_cols[i], numeric_cols[j]
-                if not any((c1 == p[0] and c2 == p[1]) or (c1 == p[1] and c2 == p[0]) for p in pairs_to_plot):
-                    pairs_to_plot.append((c1, c2, 0.0))
-                if len(pairs_to_plot) >= 4:
-                    break
-            if len(pairs_to_plot) >= 4:
-                break
+    # If no valid pair from top_pairs, take the first two numeric columns
+    if not valid_pairs and len(numeric_cols) >= 2:
+        valid_pairs.append((numeric_cols[0], numeric_cols[1], 0.0))
 
-    for c1, c2, r_val in pairs_to_plot[:4]:
+    for c1, c2, r_val in valid_pairs[:1]:
         try:
             s1 = df[c1].iloc[:, 0] if isinstance(df[c1], pd.DataFrame) else df[c1]
             s2 = df[c2].iloc[:, 0] if isinstance(df[c2], pd.DataFrame) else df[c2]
             sc_df = pd.DataFrame({c1: pd.to_numeric(s1, errors="coerce"), c2: pd.to_numeric(s2, errors="coerce")}).dropna()
-            
-            # Subsample for smooth, lag-free 60fps rendering on datasets with thousands of rows
             sc_plot_df = sc_df.sample(min(len(sc_df), 800), random_state=42) if len(sc_df) > 800 else sc_df
 
             try:
@@ -237,245 +324,70 @@ def generate_eda_chart_recommendations(df: pd.DataFrame, col_types: Dict[str, st
             except Exception:
                 fig_sc = px.scatter(sc_plot_df, x=c1, y=c2, color_discrete_sequence=[PURPLE])
 
-            title_r = f" (r = {r_val:.3f})" if r_val != 0.0 else ""
-            _styled_fig(fig_sc, f"Bivariate Scatter: {c1} vs {c2}{title_r}")
-            why_text = f"Analyzes continuous joint distribution and linearity between '{c1}' and '{c2}'."
+            title_r = f" (r = {r_val:.2f})" if r_val != 0.0 else ""
+            _styled_fig(fig_sc, f"Bivariate Relationship: {c1} vs {c2}{title_r}")
+            why_text = f"Explores continuous relationship between '{c1}' and '{c2}'."
             if r_val != 0.0:
-                why_text += f" Pearson correlation coefficient r = {r_val:.3f} indicates {'positive' if r_val > 0 else 'negative'} co-movement."
+                why_text += f" Pearson correlation r = {r_val:.2f} indicates {'positive' if r_val > 0 else 'negative'} co-movement."
 
             recommendations.append({
                 "id": f"sc_{c1}_{c2}",
                 "title": f"Bivariate Scatter — {c1} vs {c2}",
                 "chart_type": "Scatter Plot with Trendline",
                 "columns": [c1, c2],
-                "category": "Bivariate Relationships",
+                "category": "Multivariate Relationships",
                 "why": why_text,
                 "fig": fig_sc
             })
         except Exception:
             pass
 
-    # 5b. SCATTER MATRIX (SPLOM) FOR NUMERICAL DATASETS
-    if len(numeric_cols) >= 3:
+    # ─────────────────────────────────────────────────────────────────────────
+    # 4. CATEGORICAL FREQUENCY BAR CHART (Fallback or Additional Insight)
+    # ─────────────────────────────────────────────────────────────────────────
+    non_target_cats = [c for c in cat_cols if c != target_col]
+    if non_target_cats and len(recommendations) < 7:
+        cat_disp = non_target_cats[0]
         try:
-            splom_cols = numeric_cols[:4]
-            splom_df = df[splom_cols].apply(pd.to_numeric, errors="coerce").dropna()
-            if len(splom_df) > 5:
-                splom_plot_df = splom_df.sample(min(len(splom_df), 350), random_state=42) if len(splom_df) > 350 else splom_df
-                fig_splom = px.scatter_matrix(splom_plot_df, dimensions=splom_cols, color_discrete_sequence=[PURPLE])
-                _styled_fig(fig_splom, "Pairwise Scatter Matrix (SPLOM)")
-                recommendations.append({
-                    "id": "scatter_matrix_splom",
-                    "title": "Pairwise Scatter Matrix (Pairplot)",
-                    "chart_type": "Scatter Matrix (SPLOM)",
-                    "columns": splom_cols,
-                    "category": "Multivariate Relationships",
-                    "why": f"Simultaneously examines pairwise scatter plots and diagonal distributions across {len(splom_cols)} numerical features in one unified grid.",
-                    "fig": fig_splom
-                })
-        except Exception:
-            pass
-
-    # 6. GROUPED BOXPLOTS (NUMERIC BY CATEGORICAL)
-    if numeric_cols and cat_cols:
-        for num_c in numeric_cols[:2]:
-            for cat_c in cat_cols[:2]:
-                try:
-                    s_num = df[num_c].iloc[:, 0] if isinstance(df[num_c], pd.DataFrame) else df[num_c]
-                    s_cat = df[cat_c].iloc[:, 0] if isinstance(df[cat_c], pd.DataFrame) else df[cat_c]
-                    tmp_full = pd.DataFrame({num_c: pd.to_numeric(s_num, errors="coerce"), cat_c: s_cat.astype(str)})
-
-                    top_cats = tmp_full[cat_c].value_counts().head(6).index.tolist()
-                    tmp = tmp_full[tmp_full[cat_c].isin(top_cats)].dropna()
-                    if len(tmp) > 0:
-                        category_order = (
-                            tmp.groupby(cat_c)[num_c]
-                            .median()
-                            .sort_values()
-                            .index.tolist()
-                        )
-                        fig_g = px.box(
-                            tmp,
-                            x=cat_c,
-                            y=num_c,
-                            color=cat_c,
-                            category_orders={cat_c: category_order},
-                            points="outliers",
-                            color_discrete_sequence=PALETTE,
-                        )
-                        fig_g.update_layout(showlegend=False)
-                        fig_g.update_yaxes(title=num_c)
-                        _styled_fig(fig_g, f"{num_c} Distribution across {cat_c}")
-                        why_text = f"Groups numerical variable '{num_c}' across categories of '{cat_c}'. "
-                        why_text += "Boxes show the middle 50% of values, center lines show medians, and whiskers summarize the remaining spread."
-
-                        recommendations.append({
-                            "id": f"group_box_{num_c}_{cat_c}",
-                            "title": f"Grouped Breakdown — {num_c} by {cat_c}",
-                            "chart_type": "Grouped Box Plot",
-                            "columns": [num_c, cat_c],
-                            "category": "Bivariate Relationships",
-                            "why": why_text,
-                            "fig": fig_g
-                        })
-                except Exception:
-                    pass
-
-    # 7. CATEGORICAL DONUT CHARTS
-    for col in cat_cols[:2]:
-        try:
-            col_s = df[col].iloc[:, 0] if isinstance(df[col], pd.DataFrame) else df[col]
-            vc = col_s.value_counts().head(8).reset_index()
+            col_s = df[cat_disp].iloc[:, 0] if isinstance(df[cat_disp], pd.DataFrame) else df[cat_disp]
+            vc = col_s.value_counts().head(10).reset_index()
             vc.columns = ["Category", "Count"]
-            if len(vc) > 1:
-                fig_donut = px.pie(vc, names="Category", values="Count", hole=0.45, color_discrete_sequence=PALETTE)
-                _styled_fig(fig_donut, f"Category Share Donut Chart — {col}")
+            if len(vc) > 0:
+                fig_cat = px.bar(vc, x="Count", y="Category", orientation="h", color="Count", color_continuous_scale=[CARD_BG, CYAN])
+                fig_cat.update_layout(coloraxis_showscale=False, yaxis={"categoryorder": "total ascending", "title": cat_disp})
+                _styled_fig(fig_cat, f"Frequency Distribution — {cat_disp}")
                 recommendations.append({
-                    "id": f"cat_donut_{col}",
-                    "title": f"Proportional Share — {col}",
-                    "chart_type": "Donut Ring Chart",
-                    "columns": [col],
-                    "category": "Univariate Proportions",
-                    "why": f"Displays percentage composition and proportional weight across categories in '{col}'.",
-                    "fig": fig_donut
+                    "id": f"cat_bar_{cat_disp}",
+                    "title": f"Value Frequency — {cat_disp}",
+                    "chart_type": "Horizontal Bar Chart",
+                    "columns": [cat_disp],
+                    "category": "Univariate Distributions",
+                    "why": f"Visualizes frequency breakdown of categorical variable '{cat_disp}'.",
+                    "fig": fig_cat
                 })
         except Exception:
             pass
 
-    # 8. STACKED / PROPORTIONAL BAR CHARTS (CAT vs CAT)
-    if len(cat_cols) >= 2:
-        c1, c2 = cat_cols[0], cat_cols[1]
-        try:
-            s1 = df[c1].iloc[:, 0] if isinstance(df[c1], pd.DataFrame) else df[c1]
-            s2 = df[c2].iloc[:, 0] if isinstance(df[c2], pd.DataFrame) else df[c2]
-            ct_df = pd.DataFrame({c1: s1.astype(str), c2: s2.astype(str)}).dropna()
-            
-            # Top categories filter
-            top1 = ct_df[c1].value_counts().head(6).index
-            top2 = ct_df[c2].value_counts().head(6).index
-            ct_sub = ct_df[ct_df[c1].isin(top1) & ct_df[c2].isin(top2)]
-
-            if len(ct_sub) > 0:
-                fig_stk = px.histogram(ct_sub, x=c1, color=c2, barmode="group", color_discrete_sequence=PALETTE)
-                _styled_fig(fig_stk, f"Cross-Categorical Breakdown: {c1} vs {c2}")
-                recommendations.append({
-                    "id": f"cat_cross_{c1}_{c2}",
-                    "title": f"Cross-Categorical Interaction — {c1} vs {c2}",
-                    "chart_type": "Grouped Segmented Bar",
-                    "columns": [c1, c2],
-                    "category": "Multivariate Categorical",
-                    "why": f"Evaluates interaction and sub-group proportions between categorical dimensions '{c1}' and '{c2}'.",
-                    "fig": fig_stk
-                })
-        except Exception:
-            pass
-
-    # 9. COLOR-CODED MULTIVARIATE SCATTER PLOT (2 NUMERIC + 1 CAT)
-    if len(numeric_cols) >= 2 and cat_cols:
-        c1, c2 = numeric_cols[0], numeric_cols[1]
-        c_cat = cat_cols[0]
-        try:
-            s1 = pd.to_numeric(df[c1], errors="coerce")
-            s2 = pd.to_numeric(df[c2], errors="coerce")
-            sc_mult = pd.DataFrame({c1: s1, c2: s2, c_cat: df[c_cat].astype(str)}).dropna()
-            top_cats = sc_mult[c_cat].value_counts().head(5).index
-            sc_sub = sc_mult[sc_mult[c_cat].isin(top_cats)]
-            
-            if len(sc_sub) > 0:
-                fig_msc = px.scatter(sc_sub, x=c1, y=c2, color=c_cat, color_discrete_sequence=PALETTE, opacity=0.85)
-                _styled_fig(fig_msc, f"Multivariate Scatter: {c1} vs {c2} by {c_cat}")
-                recommendations.append({
-                    "id": f"multi_sc_{c1}_{c2}_{c_cat}",
-                    "title": f"Segmented Scatter — {c1} vs {c2} by {c_cat}",
-                    "chart_type": "Color-Segmented Scatter Plot",
-                    "columns": [c1, c2, c_cat],
-                    "category": "Multivariate Relationships",
-                    "why": f"Maps 2D numeric space ({c1} vs {c2}) colored by categorical class '{c_cat}' to uncover cluster boundaries.",
-                    "fig": fig_msc
-                })
-        except Exception:
-            pass
-
-    # 10. DENSITY HEATMAP (2D NUMERIC DENSITY)
-    if len(numeric_cols) >= 2:
-        c1, c2 = numeric_cols[0], numeric_cols[1]
-        try:
-            s1 = pd.to_numeric(df[c1], errors="coerce")
-            s2 = pd.to_numeric(df[c2], errors="coerce")
-            dh_df = pd.DataFrame({c1: s1, c2: s2}).dropna()
-            if len(dh_df) > 10:
-                fig_dh = px.density_heatmap(dh_df, x=c1, y=c2, color_continuous_scale="Viridis", nbinsx=25, nbinsy=25)
-                _styled_fig(fig_dh, f"2D Bivariate Density — {c1} vs {c2}")
-                recommendations.append({
-                    "id": f"density_2d_{c1}_{c2}",
-                    "title": f"2D Density Heatmap — {c1} vs {c2}",
-                    "chart_type": "2D Density Heatmap",
-                    "columns": [c1, c2],
-                    "category": "Bivariate Density",
-                    "why": f"Visualizes data point concentration and multi-modal clusters between '{c1}' and '{c2}'.",
-                    "fig": fig_dh
-                })
-        except Exception:
-            pass
-
-    # 11. PARALLEL COORDINATES PLOT (MULTI-NUMERIC SPACE)
-    if len(numeric_cols) >= 3:
-        try:
-            p_cols = numeric_cols[:5]
-            p_df = df[p_cols].apply(pd.to_numeric, errors="coerce").dropna()
-            if len(p_df) > 5:
-                def _fmt_par_lbl(c_name: str) -> str:
-                    if len(c_name) <= 20:
-                        return c_name
-                    words = c_name.split(' ')
-                    lines, cur = [], ''
-                    for w in words:
-                        if cur and len(cur) + len(w) + 1 > 18:
-                            lines.append(cur)
-                            cur = w
-                        else:
-                            cur = (cur + ' ' + w).strip()
-                    if cur:
-                        lines.append(cur)
-                    if len(lines) > 2:
-                        return lines[0] + '<br>' + lines[1][:14] + '...'
-                    return '<br>'.join(lines)
-
-                labels = {c: _fmt_par_lbl(c) for c in p_cols}
-                fig_par = px.parallel_coordinates(p_df, color=p_cols[0], color_continuous_scale="Viridis", labels=labels)
-                _styled_fig(fig_par, "")
-                fig_par.update_layout(margin=dict(t=75, b=40, l=60, r=60))
-                recommendations.append({
-                    "id": "parallel_coords",
-                    "title": "Multi-Dimensional Parallel Coordinates",
-                    "chart_type": "Parallel Coordinates Plot",
-                    "columns": p_cols,
-                    "category": "High-Dimensional EDA",
-                    "why": "Traces continuous multi-variable trajectories across numeric features simultaneously to discover global patterns.",
-                    "fig": fig_par
-                })
-        except Exception:
-            pass
-
-    # 12. DATETIME / TIME-SERIES LINE PLOT
+    # ─────────────────────────────────────────────────────────────────────────
+    # 5. TEMPORAL LINE CHART (If Datetime column is present)
+    # ─────────────────────────────────────────────────────────────────────────
     if datetime_cols and numeric_cols:
         d_col = datetime_cols[0]
         n_col = numeric_cols[0]
         try:
-            ts_df = pd.DataFrame({
-                d_col: pd.to_datetime(df[d_col], errors="coerce"),
-                n_col: pd.to_numeric(df[n_col], errors="coerce")
-            }).dropna().sort_values(d_col)
-            if len(ts_df) > 3:
-                fig_ts = px.line(ts_df, x=d_col, y=n_col, color_discrete_sequence=[CYAN])
-                _styled_fig(fig_ts, f"Time Series Trend — {n_col} over {d_col}")
+            t_df = df[[d_col, n_col]].dropna().copy()
+            t_df[d_col] = pd.to_datetime(t_df[d_col], errors="coerce")
+            t_df = t_df.dropna().sort_values(d_col)
+            if len(t_df) > 5:
+                fig_ts = px.line(t_df, x=d_col, y=n_col, color_discrete_sequence=[CYAN])
+                _styled_fig(fig_ts, f"Temporal Trend: {n_col} over {d_col}")
                 recommendations.append({
-                    "id": f"ts_line_{n_col}",
-                    "title": f"Temporal Trend — {n_col} over Time",
+                    "id": f"time_series_{n_col}",
+                    "title": f"Temporal Trend — {n_col} over {d_col}",
                     "chart_type": "Time Series Line Chart",
                     "columns": [d_col, n_col],
                     "category": "Temporal Analytics",
-                    "why": f"Analyzes trend direction, seasonal patterns, and temporal variations in '{n_col}' over date column '{d_col}'.",
+                    "why": f"Analyzes trend direction and temporal variations in '{n_col}' over time.",
                     "fig": fig_ts
                 })
         except Exception:
@@ -516,7 +428,7 @@ def build_custom_chart(
             fig = px.scatter(sub_df, x=x_col, y=y_col if y_col else x_col, color=color_col, color_discrete_sequence=PALETTE)
 
     elif chart_type == "Distribution Histogram":
-        fig = px.histogram(sub_df, x=x_col, color=color_col, marginal="rug", nbins=40, color_discrete_sequence=PALETTE)
+        fig = px.histogram(sub_df, x=x_col, color=color_col, marginal="box", nbins=30, color_discrete_sequence=PALETTE)
 
     elif chart_type == "Box Plot":
         fig = px.box(sub_df, x=color_col if color_col else None, y=y_col if y_col else x_col, color=color_col, points="outliers", color_discrete_sequence=PALETTE)
@@ -528,14 +440,16 @@ def build_custom_chart(
         sort_df = sub_df.sort_values(x_col)
         fig = px.line(sort_df, x=x_col, y=y_col if y_col else x_col, color=color_col, color_discrete_sequence=PALETTE)
 
-    elif chart_type == "Bar Chart":
+    elif chart_type in ("Countplot (Category Frequency)", "Bar Chart"):
         if y_col and y_col != x_col:
             grouped = sub_df.groupby([x_col] + ([color_col] if color_col else []))[y_col].mean().reset_index()
-            fig = px.bar(grouped, x=x_col, y=y_col, color=color_col, color_discrete_sequence=PALETTE)
+            fig = px.bar(grouped, x=x_col, y=y_col, color=color_col, barmode="group", color_discrete_sequence=PALETTE)
+        elif color_col:
+            fig = px.histogram(sub_df, x=x_col, color=color_col, barmode="group", color_discrete_sequence=PALETTE)
         else:
             vc = sub_df[x_col].value_counts().head(20).reset_index()
             vc.columns = [x_col, "Count"]
-            fig = px.bar(vc, x=x_col, y="Count", color="Count", color_continuous_scale="Purples")
+            fig = px.bar(vc, x=x_col, y="Count", text="Count", color="Count", color_continuous_scale="Purples")
 
     elif chart_type == "2D Density Heatmap":
         fig = px.density_heatmap(sub_df, x=x_col, y=y_col if y_col else x_col, nbinsx=30, nbinsy=30, color_continuous_scale="Viridis")
